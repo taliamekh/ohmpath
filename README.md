@@ -1,6 +1,6 @@
 # Ohm Path
 
-Countryside navigation and expressive guide animation
+Private phone photos and explicit spoken question playback
 
 This named feature branch preserves the reviewed implementation commits for this slice. The integrated desktop, launch instructions and current verification are assembled in the later software branch. No physical hardware acceptance is claimed.
 
