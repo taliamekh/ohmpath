@@ -34,6 +34,7 @@ type Turn = { id: string; question: string; answer: PhotoAnswer };
 type ActiveJob = { context_id: string; turn_id?: string; generation: number; deadline: number };
 
 export type PhotoHelpPageProps = {
+  active?: boolean;
   initialCapture?: PhotoHelpImage;
   onCaptureConsumed?: () => void;
   prefillQuestion?: string;
@@ -90,7 +91,7 @@ function speakText(answer: PhotoAnswer): string {
   return [answer.explanation, ...answer.next_steps.slice(0, 3)].join(" ");
 }
 
-export default function PhotoHelpPage({ initialCapture, onCaptureConsumed, prefillQuestion = "", onPrefillConsumed, onActivity, onReadAloud, speechAvailable = false }: PhotoHelpPageProps) {
+export default function PhotoHelpPage({ active = true, initialCapture, onCaptureConsumed, prefillQuestion = "", onPrefillConsumed, onActivity, onReadAloud, speechAvailable = false }: PhotoHelpPageProps) {
   const [images, setImages] = useState<PhotoHelpImage[]>([]);
   const [selectedId, setSelectedId] = useState("");
   const [question, setQuestion] = useState("");
@@ -106,14 +107,17 @@ export default function PhotoHelpPage({ initialCapture, onCaptureConsumed, prefi
   const timerRef = useRef<number | null>(null);
   const releaseTimerRef = useRef<number | null>(null);
   const generationRef = useRef(0);
+  const choiceGenerationRef = useRef(0);
   const contextIdRef = useRef(crypto.randomUUID());
   const mountedRef = useRef(false);
+  const activeRef = useRef(active);
+  activeRef.current = active;
   const consumedCaptureRef = useRef("");
   const latestActivityRef = useRef(onActivity);
   latestActivityRef.current = onActivity;
 
   function activity(state: "idle" | "thinking" | "error", caption?: string) {
-    latestActivityRef.current?.(state, caption);
+    if (mountedRef.current && activeRef.current) latestActivityRef.current?.(state, caption);
   }
 
   function release(imageId: string) {
@@ -155,8 +159,13 @@ export default function PhotoHelpPage({ initialCapture, onCaptureConsumed, prefi
     if (releaseTimerRef.current !== null) window.clearTimeout(releaseTimerRef.current);
     releaseTimerRef.current = null;
     return () => {
+      const notifyActiveUnmount = activeRef.current;
       mountedRef.current = false;
+      choiceGenerationRef.current += 1;
       cancelJob();
+      // The camera drawer unmounts when its workspace closes. This synchronous
+      // cleanup clears its parent caption; late requests remain silent.
+      if (notifyActiveUnmount) latestActivityRef.current?.("idle", "");
       // Deferred cleanup survives React's development-only effect replay.
       releaseTimerRef.current = window.setTimeout(() => {
         if (!mountedRef.current) {
@@ -168,7 +177,18 @@ export default function PhotoHelpPage({ initialCapture, onCaptureConsumed, prefi
   }, []);
 
   useEffect(() => {
-    if (!initialCapture || consumedCaptureRef.current === initialCapture.image_id) return;
+    if (!active) {
+      choiceGenerationRef.current += 1;
+      setChoosing(false);
+      if (jobRef.current) cancelJob();
+      return;
+    }
+    const latest = turns[turns.length - 1];
+    activity("idle", latest ? speakText(latest.answer) : "");
+  }, [active]);
+
+  useEffect(() => {
+    if (!active || !initialCapture || consumedCaptureRef.current === initialCapture.image_id) return;
     consumedCaptureRef.current = initialCapture.image_id;
     if (!validImage(initialCapture)) {
       setError("That capture could not be opened as a PNG or JPEG image.");
@@ -180,24 +200,32 @@ export default function PhotoHelpPage({ initialCapture, onCaptureConsumed, prefi
       else release(initialCapture.image_id);
     }
     onCaptureConsumed?.();
-  }, [initialCapture, onCaptureConsumed]);
+  }, [active, initialCapture, onCaptureConsumed]);
 
   useEffect(() => {
-    if (!prefillQuestion) return;
+    if (!active || !prefillQuestion) return;
     setQuestion(prefillQuestion.slice(0, 4000));
     onPrefillConsumed?.();
-  }, [prefillQuestion, onPrefillConsumed]);
+  }, [active, prefillQuestion, onPrefillConsumed]);
 
-  async function chooseImage() {
-    if (choosing || imagesRef.current.length >= 3) return;
+  async function chooseOrPaste(action: "photoChooseImage" | "photoPasteImage") {
+    if (!activeRef.current || choosing || imagesRef.current.length >= 3) return;
+    const choiceGeneration = ++choiceGenerationRef.current;
     setChoosing(true);
     setError("");
     try {
-      const result = await request<{ cancelled?: boolean; image?: PhotoHelpImage }>("photoChooseImage");
+      const result = await request<{ cancelled?: boolean; image?: unknown }>(action);
       if (result?.cancelled) return;
-      if (!validImage(result?.image)) throw new Error("The selected file was not a usable PNG or JPEG image.");
+      if (!validImage(result?.image)) {
+        const candidate = result?.image;
+        const returnedId = candidate && typeof candidate === "object" && "image_id" in candidate
+          && typeof candidate.image_id === "string" ? candidate.image_id : "";
+        if (returnedId) release(returnedId);
+        throw new Error("That image was not a usable PNG or JPEG image.");
+      }
       const image = result.image;
-      if (!mountedRef.current || imagesRef.current.length >= 3 || imagesRef.current.some((item) => item.image_id === image.image_id)) {
+      if (!mountedRef.current || !activeRef.current || choiceGeneration !== choiceGenerationRef.current
+          || imagesRef.current.length >= 3 || imagesRef.current.some((item) => item.image_id === image.image_id)) {
         if (!imagesRef.current.some((item) => item.image_id === image.image_id)) release(image.image_id);
         return;
       }
@@ -205,9 +233,10 @@ export default function PhotoHelpPage({ initialCapture, onCaptureConsumed, prefi
       selectedIdRef.current = image.image_id;
       setSelectedId(image.image_id);
     } catch (problem) {
-      if (mountedRef.current) setError(problem instanceof Error ? problem.message : "Could not open that image.");
+      if (mountedRef.current && activeRef.current && choiceGeneration === choiceGenerationRef.current)
+        setError(problem instanceof Error ? problem.message : "Could not add that image.");
     } finally {
-      if (mountedRef.current) setChoosing(false);
+      if (mountedRef.current && choiceGeneration === choiceGenerationRef.current) setChoosing(false);
     }
   }
 
@@ -216,8 +245,17 @@ export default function PhotoHelpPage({ initialCapture, onCaptureConsumed, prefi
     release(imageId);
   }
 
+  function clearWorkspace() {
+    choiceGenerationRef.current += 1;
+    const oldImages = [...imagesRef.current];
+    changeImages([]);
+    oldImages.forEach((image) => release(image.image_id));
+    setQuestion("");
+    setChoosing(false);
+  }
+
   function finish(job: ActiveJob, result: PhotoJob, askedQuestion: string) {
-    if (jobRef.current !== job || generationRef.current !== job.generation || !mountedRef.current) return;
+    if (jobRef.current !== job || generationRef.current !== job.generation || !mountedRef.current || !activeRef.current) return;
     if (result.context_id !== job.context_id) {
       fail(job, "The photo answer belonged to a different request. Please ask again.");
       return;
@@ -257,14 +295,14 @@ export default function PhotoHelpPage({ initialCapture, onCaptureConsumed, prefi
   }
 
   function fail(job: ActiveJob, message: string) {
-    if (jobRef.current !== job || generationRef.current !== job.generation || !mountedRef.current) return;
+    if (jobRef.current !== job || generationRef.current !== job.generation || !mountedRef.current || !activeRef.current) return;
     cancelJob();
     setError(message);
     activity("error", message);
   }
 
   async function poll(job: ActiveJob, askedQuestion: string) {
-    if (jobRef.current !== job || generationRef.current !== job.generation || !mountedRef.current) return;
+    if (jobRef.current !== job || generationRef.current !== job.generation || !mountedRef.current || !activeRef.current) return;
     if (Date.now() >= job.deadline) {
       fail(job, "This is taking too long. The request was stopped; please try again.");
       return;
@@ -279,7 +317,7 @@ export default function PhotoHelpPage({ initialCapture, onCaptureConsumed, prefi
 
   async function ask() {
     const askedQuestion = question.trim();
-    if (!askedQuestion || !imagesRef.current.length || jobRef.current) return;
+    if (!activeRef.current || !askedQuestion || !imagesRef.current.length || jobRef.current) return;
     const job: ActiveJob = { context_id: contextIdRef.current, generation: ++generationRef.current, deadline: Date.now() + 90_000 };
     jobRef.current = job;
     setBusy(true);
@@ -290,7 +328,7 @@ export default function PhotoHelpPage({ initialCapture, onCaptureConsumed, prefi
         question: askedQuestion,
         image_ids: imagesRef.current.map((image) => image.image_id),
       });
-      if (jobRef.current !== job || generationRef.current !== job.generation || !mountedRef.current) {
+      if (jobRef.current !== job || generationRef.current !== job.generation || !mountedRef.current || !activeRef.current) {
         // A cancellation can race the first response, before a turn ID was known.
         cancelRemote(job.context_id, result?.turn_id);
         return;
@@ -319,14 +357,16 @@ export default function PhotoHelpPage({ initialCapture, onCaptureConsumed, prefi
             <img src={selected.data_url} alt={selected.name || "Selected circuit image"} draggable={false} />
             {notes.map((note, index) => <button type="button" key={`${selected.image_id}-${index}`} className={`photo-help-marker ${activeNote === index ? "active" : ""}`} style={{ left: `${note.x * 100}%`, top: `${note.y * 100}%` }} title={note.label} aria-label={`Annotation ${index + 1}: ${note.label}`} onClick={() => setActiveNote(activeNote === index ? null : index)}><span>{index + 1}</span><b className={note.x > .64 ? "left" : ""}>{note.label}</b></button>)}
           </div>
-        </div> : <div className="photo-help-empty"><span className="photo-help-empty-icon" aria-hidden="true">▧</span><strong>Start with an image</strong><p>Add a photo of your circuit or a diagram you want to understand.</p><button type="button" className="button primary" onClick={chooseImage} disabled={choosing}>{choosing ? "Opening…" : "Add a photo or diagram"}<span>＋</span></button><small>PNG or JPEG · up to 3 images</small></div>}
+        </div> : <div className="photo-help-empty"><span className="photo-help-empty-icon" aria-hidden="true">▧</span><strong>Start with an image</strong><p>Add a photo of your circuit or a diagram you want to understand.</p><div style={{ display: "flex", flexWrap: "wrap", justifyContent: "center", gap: 8 }}><button type="button" className="button primary" onClick={() => void chooseOrPaste("photoChooseImage")} disabled={choosing}>{choosing ? "Adding…" : "Add a photo or diagram"}<span>＋</span></button><button type="button" className="button secondary" onClick={() => void chooseOrPaste("photoPasteImage")} disabled={choosing}>Paste image</button></div><small>PNG or JPEG · up to 3 images</small></div>}
         <div className="photo-help-visual-foot"><span>{selected ? `${selected.width} × ${selected.height}${selected.resized ? " · Resized locally" : ""} · ${notes.length ? `${notes.length} marked ${notes.length === 1 ? "detail" : "details"}` : "No marked details yet"}` : "No camera needed"}</span><span>Visual guidance is not a confirmed measurement.</span></div>
       </section>
 
       <aside className="photo-help-side">
-        <section className="panel photo-help-attachments"><div className="photo-help-section-heading"><div><span className="eyebrow">01 / ADD CONTEXT</span><h2>Your images <small>{images.length}/3</small></h2></div><button type="button" className="photo-help-add" onClick={chooseImage} disabled={choosing || images.length >= 3} aria-label="Add image">＋</button></div>
+        <section className="panel photo-help-attachments"><div className="photo-help-section-heading"><div><span className="eyebrow">01 / ADD CONTEXT</span><h2>Your images <small>{images.length}/3</small></h2></div><button type="button" className="photo-help-add" onClick={() => void chooseOrPaste("photoChooseImage")} disabled={choosing || images.length >= 3} aria-label="Add image">＋</button></div>
           {images.length ? <div className="photo-help-thumbs">{images.map((image, index) => <div className={`photo-help-thumb ${selected?.image_id === image.image_id ? "selected" : ""}`} key={image.image_id}><button type="button" className="photo-help-thumb-select" onClick={() => { selectedIdRef.current = image.image_id; setSelectedId(image.image_id); setZoom(1); setActiveNote(null); }} aria-label={`View ${image.name}`} aria-pressed={selected?.image_id === image.image_id}><img src={image.data_url} alt="" /><span>{String(index + 1).padStart(2, "0")}</span></button><button type="button" className="photo-help-remove" onClick={() => removeImage(image.image_id)} aria-label={`Remove ${image.name}`} title="Remove image">×</button><small title={image.name}>{image.name}</small></div>)}</div> : <p className="photo-help-attachments-empty">Your selected images will appear here.</p>}
-          {images.length > 0 && images.length < 3 && <button type="button" className="photo-help-add-text" onClick={chooseImage} disabled={choosing}>＋ Add another image</button>}
+          {images.length > 0 && images.length < 3 && <button type="button" className="photo-help-add-text" onClick={() => void chooseOrPaste("photoChooseImage")} disabled={choosing}>＋ Add another image</button>}
+          {images.length > 0 && <button type="button" className="photo-help-add-text" style={{ marginLeft: images.length < 3 ? 16 : 0 }} onClick={() => void chooseOrPaste("photoPasteImage")} disabled={choosing || images.length >= 3}>Paste image</button>}
+          <button type="button" className="button secondary small" style={{ marginTop: 12 }} onClick={clearWorkspace} disabled={!images.length && !turns.length && !question && !error && !busy && !choosing}>Clear workspace</button>
         </section>
         <section className="panel photo-help-ask"><span className="eyebrow">02 / ASK YOUR QUESTION</span><label htmlFor="photo-help-question">What would you like help with?</label><textarea id="photo-help-question" value={question} onChange={(event) => setQuestion(event.target.value.slice(0, 4000))} placeholder="For example: Where should I start checking this board?" rows={4} maxLength={4000} /><p className="photo-help-voice-hint">Ask a follow-up about the same images, or add a clearer close-up.</p><p className="photo-help-disclosure">When you press Ask, your selected images and question go to your signed-in subscription reasoning service.</p><button type="button" className="button primary photo-help-submit" onClick={() => void ask()} disabled={busy || !images.length || !question.trim()}>{busy ? "Looking at your images…" : "Ask about these images"}<span>→</span></button>{busy && <button type="button" className="photo-help-cancel" onClick={cancelJob}>Stop request</button>}{error && <p className="photo-help-error" role="alert">{error}</p>}</section>
       </aside>

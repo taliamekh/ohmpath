@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, session, dialog, screen, nativeImage, safeStorage } = require('electron');
+const { app, BrowserWindow, ipcMain, session, dialog, screen, nativeImage, safeStorage, clipboard } = require('electron');
 const { spawn } = require('node:child_process');
 const { randomBytes } = require('node:crypto');
 const { join, resolve } = require('node:path');
@@ -153,6 +153,7 @@ ipcMain.handle('ohmpath:request', async (event, action, payload) => {
       return { image: photoImages.addUpload(bytes.subarray(0, length), require('node:path').basename(source)) };
     } finally { await handle.close(); }
   }
+  if (action === 'photoPasteImage') return { image: photoImages.paste(clipboard) };
   if (action === 'photoImportCapture') return { image: photoImages.capture(payload) };
   if (action === 'photoReleaseImage') return photoImages.release(payload.image_id);
   if (action === 'photoAsk') {
