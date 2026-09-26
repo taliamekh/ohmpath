@@ -364,7 +364,7 @@ app.whenReady().then(async () => {
   mainWindow = new BrowserWindow({ width: 1440, height: 940, minWidth: 980, minHeight: 700, title: 'Ohm Path', show: process.env.OHMPATH_HEADLESS !== '1',
     icon: windowIcon, backgroundColor: '#eee9d7', autoHideMenuBar: true,
     ...(process.platform === 'win32' ? { titleBarStyle: 'hidden',
-      titleBarOverlay: { color: '#65452e', symbolColor: '#fff4db', height: 32 } } : {}),
+      titleBarOverlay: { color: '#173e2d', symbolColor: '#fff4db', height: 32 } } : {}),
     webPreferences: { preload: join(__dirname, 'preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true } });
   mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   mainWindow.webContents.on('will-navigate', event => event.preventDefault());
