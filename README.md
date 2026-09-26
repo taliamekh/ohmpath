@@ -1,6 +1,6 @@
 # Ohm Path
 
-Photo help and animated character workspace
+Countryside navigation and expressive guide animation
 
 This named feature branch preserves the reviewed implementation commits for this slice. The integrated desktop, launch instructions and current verification are assembled in the later software branch. No physical hardware acceptance is claimed.
 

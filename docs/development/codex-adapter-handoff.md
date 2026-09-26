@@ -1,5 +1,7 @@
 # Codex adapter handoff
 
+**Later integration evidence:** this file records the initial adapter handoff. The subsequent [investigator runtime proof](investigator-runtime-proof.md) passed the image transport → four dynamic tools → actual ngspice → validated answer path in 49.64 seconds. Its input was a controlled historical practice screenshot, not a physical circuit photograph. The later production runtime uses dynamic-only tools and a restricted child environment; the initial untested-image statements below are historical. Milestone 2 remains unchecked because the complete acceptance boundary is broader than this software proof. The afternoon cancellation follow-up also bounds preflight within the total request deadline and closes the child when cancelled; 25 offline runtime checks passed.
+
 Status: **narrow subscription tool loop proven; milestone 2 is not accepted**. The installed CLI is `codex-cli 0.155.0-alpha.16.4`. Three explicitly authorized live model turns were made; no paid API request, physical measurement, or hardware action was made.
 
 ## Implemented
