@@ -80,8 +80,8 @@ async function installSyntheticCamera(page) {
   });
 }
 
-async function sampleCamera(page, previous) {
-  const sample = await page.evaluate(() => {
+async function sampleCamera(page, previous, sampleMs, baselines) {
+  const sample = await page.evaluate(knownBaselines => {
     const camera = document.querySelector('.camera-workspace');
     const video = camera?.querySelector('.camera-workspace-overview video');
     const guide = camera?.querySelector('.camera-workspace-focus-guide [role="img"]');
@@ -108,7 +108,8 @@ async function sampleCamera(page, previous) {
       return { hash: hash >>> 0, opaque };
     }
     const bounds = guide?.getBoundingClientRect();
-    return {
+    const canvasBounds = canvas?.getBoundingClientRect();
+    const sample = {
       focused: Boolean(camera?.classList.contains('is-focused')),
       video_time: video?.currentTime ?? -1,
       video_frames: video?.getVideoPlaybackQuality?.().totalVideoFrames ?? null,
@@ -118,26 +119,50 @@ async function sampleCamera(page, previous) {
         && ((canvas && canvas.width > 0 && canvas.height > 0) || (image && image.complete && image.naturalWidth > 0))),
       // Eyelids intentionally blink. Sample the lower face and central waist
       // independently so blinking cannot disguise a shifting head or torso.
-      face: regionHash([.43, .218, .57, .24]),
-      waist: regionHash([.44, .52, .56, .70]),
+      upper_face: regionHash([.43, .12, .61, .16]),
+      face: regionHash([.44, .215, .60, .255]),
+      waist: regionHash([.45, .51, .55, .72]),
       outer: regionHash([.04, .35, .34, .88]),
       guide_geometry: canvas ? `${canvas.width}x${canvas.height}` : 'none',
       guide_expression: guide?.getAttribute('data-expression') ?? 'none',
       guide_activity: [...(guide?.classList ?? [])].find(value => value.startsWith('activity-')) ?? 'none',
-      guide_bounds: bounds ? `${Math.round(bounds.width)}x${Math.round(bounds.height)}` : 'none',
+      guide_bounds: bounds ? [bounds.x, bounds.y, bounds.width, bounds.height].map(Math.round).join(',') : 'none',
+      canvas_bounds: canvasBounds ? [canvasBounds.x, canvasBounds.y, canvasBounds.width, canvasBounds.height].map(Math.round).join(',') : 'none',
       viewport: `${window.innerWidth}x${window.innerHeight}`,
+      device_pixel_ratio: window.devicePixelRatio,
     };
-  });
+    const rasterKey = [sample.guide_geometry, sample.guide_expression, sample.guide_activity].join('|');
+    const baseline = knownBaselines[rasterKey];
+    const stable = { upper_face: sample.upper_face?.hash, lower_face: sample.face?.hash,
+      waist: sample.waist?.hash };
+    if (canvas instanceof HTMLCanvasElement && (!baseline
+        || Object.keys(stable).some(region => stable[region] !== baseline[region]))) {
+      // Capture in this renderer turn, before another animation frame can paint.
+      sample.canvas_data_url = canvas.toDataURL('image/png');
+    }
+    return sample;
+  }, Object.fromEntries(baselines));
   if (!sample.focused || sample.video_width < 1 || sample.track_state !== 'live' || !sample.guide_present)
     throw new Error(`Camera or animated guide disappeared: ${JSON.stringify(sample)}`);
-  if (previous && sample.video_time < previous.video_time + 0.2)
+  // A one-second diagnostic interval can land between decoded frames. Keep
+  // the normal ten-second threshold while scaling the short-interval check.
+  const minimumVideoProgress = Math.min(0.2, sampleMs / 20000);
+  if (previous && sample.video_time < previous.video_time + minimumVideoProgress)
     throw new Error(`Synthetic video time stopped (${previous.video_time} to ${sample.video_time}).`);
   if (previous && sample.video_frames !== null && previous.video_frames !== null
       && sample.video_frames <= previous.video_frames)
     throw new Error('Synthetic video decoded frame count stopped.');
-  if (!sample.face || sample.face.opaque < 20 || !sample.waist || sample.waist.opaque < 50 || !sample.outer || sample.outer.opaque < 50)
+  if (!sample.upper_face || sample.upper_face.opaque < 50 || !sample.face || sample.face.opaque < 50
+      || !sample.waist || sample.waist.opaque < 50 || !sample.outer || sample.outer.opaque < 50)
     throw new Error('Animated guide canvas was blank.');
   return sample;
+}
+
+async function saveGuideCanvas(dataUrl, name) {
+  if (!dataUrl.startsWith('data:image/png;base64,')) throw new Error('Guide pixel capture was not PNG.');
+  const path = join(reportRoot, name);
+  await writeFile(path, Buffer.from(dataUrl.slice('data:image/png;base64,'.length), 'base64'));
+  return path;
 }
 
 async function exerciseCamera(page, ordinal, report) {
@@ -171,12 +196,18 @@ async function main() {
   const cycleMs = diagnosticCycleMs === undefined ? 60000 : Number(diagnosticCycleMs);
   if (!Number.isSafeInteger(cycleMs) || cycleMs < 10000 || cycleMs > 60000)
     throw new Error('Diagnostic cycle must be 10000 to 60000 milliseconds.');
+  const diagnosticSampleMs = process.env.OHMPATH_SOAK_DIAGNOSTIC_SAMPLE_MS;
+  const sampleMs = diagnosticSampleMs === undefined ? 10000 : Number(diagnosticSampleMs);
+  if (!Number.isSafeInteger(sampleMs) || sampleMs < 1000 || sampleMs > 10000)
+    throw new Error('Diagnostic sample interval must be 1000 to 10000 milliseconds.');
   await mkdir(reportRoot, { recursive: true });
   const dataDir = await mkdtemp(join(reportRoot, 'data-'));
   const report = { started_at: new Date().toISOString(), requested_minutes: minutes,
     mode: 'software_only_synthetic_canvas_video', status: 'running', video_samples: 0,
-    cycle_seconds: cycleMs / 1000, guide_geometry_changes: 0,
+    cycle_seconds: cycleMs / 1000, sample_seconds: sampleMs / 1000,
+    guide_geometry_changes: 0, guide_layout_changes: 0,
     focus_cycles: 0, subtitle_toggles: 0, snapshots_reviewed_removed: 0,
+    samples: [], raster_baselines: [],
     page_errors: [], failures: [], electron_exit_code: null, bench_pids: [], bench_exited: null,
     model_calls: 0, audio_calls: 0, physical_camera_calls: 0,
     memory_note: 'JavaScript heap and process memory are not measured; browser allocations are not reliable leak evidence.' };
@@ -227,35 +258,58 @@ async function main() {
     if (process.platform === 'win32' && report.bench_pids.length < 1)
       throw new Error('Could not identify the private bench child process for exit verification.');
     const deadline = Date.now() + minutes * 60000;
+    report.soak_started_at = new Date().toISOString();
     let nextMinute = Date.now() + cycleMs;
     let previous;
-    const outerHashes = new Set();
-    let faceBaseline = null;
+    const baselines = new Map();
+    const outerHashes = new Map();
+    let previousRasterKey = null;
+    let previousLayoutKey = null;
     let cycle = 0;
-    while (Date.now() < deadline) {
-      await delay(Math.min(10000, Math.max(0, deadline - Date.now())));
-      if (Date.now() >= deadline) break;
-      const current = await sampleCamera(page, previous);
+    async function inspectSample() {
+      const current = await sampleCamera(page, previous, sampleMs, baselines);
+      const canvasDataUrl = current.canvas_data_url;
+      delete current.canvas_data_url;
       previous = current;
       report.video_samples += 1;
-      const guideKey = [current.guide_geometry, current.guide_expression, current.guide_activity,
-        current.guide_bounds, current.viewport].join('|');
-      if (faceBaseline === null) faceBaseline = { hash: current.face.hash, waist: current.waist.hash, key: guideKey, opaque: current.face.opaque };
-      else if (guideKey !== faceBaseline.key) {
-        report.guide_geometry_changes += 1;
-        faceBaseline = { hash: current.face.hash, waist: current.waist.hash, key: guideKey, opaque: current.face.opaque };
-      } else if (current.face.hash !== faceBaseline.hash || current.waist.hash !== faceBaseline.waist) {
-        throw new Error(`Animated guide face changed with the same geometry: baseline=${JSON.stringify(faceBaseline)}, current=${JSON.stringify({
-          hash: current.face.hash, waist: current.waist.hash, key: guideKey, opaque: current.face.opaque })}.`);
+      if (current.guide_expression !== 'neutral' || current.guide_activity !== 'activity-idle')
+        throw new Error(`Guide pose changed unexpectedly: ${current.guide_expression}/${current.guide_activity}.`);
+      const rasterKey = [current.guide_geometry, current.guide_expression, current.guide_activity].join('|');
+      const layoutKey = [current.guide_bounds, current.canvas_bounds, current.viewport, current.device_pixel_ratio].join('|');
+      if (previousRasterKey !== null && rasterKey !== previousRasterKey) report.guide_geometry_changes += 1;
+      if (previousLayoutKey !== null && layoutKey !== previousLayoutKey) report.guide_layout_changes += 1;
+      previousRasterKey = rasterKey;
+      previousLayoutKey = layoutKey;
+      const baseline = baselines.get(rasterKey);
+      const stable = { upper_face: current.upper_face.hash, lower_face: current.face.hash, waist: current.waist.hash };
+      if (!baseline) {
+        baselines.set(rasterKey, stable);
+        report.raster_baselines.push({ raster_key: rasterKey, hashes: stable, first_sample: report.video_samples });
+        if (report.raster_baselines.length === 1) {
+          report.baseline_canvas = await saveGuideCanvas(canvasDataUrl, 'diagnostic-baseline-canvas.png');
+        }
+      } else if (Object.keys(stable).some(region => stable[region] !== baseline[region])) {
+        report.samples.push({ at: new Date().toISOString(), number: report.video_samples, ...current });
+        report.mismatch_canvas = await saveGuideCanvas(canvasDataUrl, 'diagnostic-mismatch-canvas.png');
+        throw new Error(`Animated guide changed at a previously seen raster geometry: baseline=${JSON.stringify(baseline)}, current=${JSON.stringify(stable)}, raster=${rasterKey}, layout=${layoutKey}.`);
       }
-      outerHashes.add(current.outer.hash);
-      report.guide_outer_distinct_frames = outerHashes.size;
+      if (!outerHashes.has(rasterKey)) outerHashes.set(rasterKey, new Set());
+      outerHashes.get(rasterKey).add(current.outer.hash);
+      report.guide_outer_distinct_frames = Math.max(...[...outerHashes.values()].map(hashes => hashes.size));
+      report.samples.push({ at: new Date().toISOString(), number: report.video_samples, ...current });
       if (report.page_errors.length) throw new Error(`Renderer error: ${report.page_errors[0]}`);
+    }
+    await delay(250);
+    await inspectSample();
+    while (Date.now() < deadline) {
+      await delay(Math.min(sampleMs, Math.max(0, deadline - Date.now())));
+      if (Date.now() >= deadline) break;
+      await inspectSample();
       if (Date.now() >= nextMinute) {
         cycle += 1;
         await exerciseCamera(page, cycle, report);
         await delay(250); // Let a remounted focus guide paint its first frame.
-        previous = await sampleCamera(page); // Focus transitions need a fresh baseline.
+        await inspectSample(); // Validate the first frame after every focus or subtitle transition.
         console.log(JSON.stringify({ cycle, elapsed_minutes: Math.round((Date.now() - Date.parse(report.started_at)) / 6000) / 10,
           requested_minutes: minutes, video_samples: report.video_samples,
           focus_cycles: report.focus_cycles, subtitle_toggles: report.subtitle_toggles,
@@ -265,7 +319,8 @@ async function main() {
       }
     }
     if (report.video_samples < minutes * 4) throw new Error('Too few decoded video checks for requested duration.');
-    if (outerHashes.size < 2) throw new Error('The guide was present but its outer cloth never animated.');
+    if (![...outerHashes.values()].some(hashes => hashes.size > 1))
+      throw new Error('The guide was present but its outer cloth never animated at a fixed raster size.');
     // The app's Disconnect action must stop its stream before the renderer closes.
     await camera.getByRole('button', { name: 'Exit full screen' }).last().click();
     await camera.getByRole('button', { name: 'Disconnect overview' }).click();
@@ -282,12 +337,13 @@ async function main() {
     report.bench_exited = report.bench_pids.every(pid => !processAlive(pid));
     if (!report.bench_exited) throw new Error('Private bench process survived desktop shutdown.');
     report.status = 'passed';
+    report.verified_soak_seconds = Math.round((Date.now() - Date.parse(report.soak_started_at)) / 1000);
   } catch (error) {
     report.status = 'failed';
     report.failure_detail = String(error.message || error).slice(0, 1200);
     report.failures.push(String(error.message || error).slice(0, 300));
     if (page && !page.isClosed()) {
-      await page.screenshot({ path: join(reportRoot, 'failure-screenshot.png') }).catch(() => {});
+      await page.screenshot({ path: join(reportRoot, 'failure-screenshot.png'), timeout: 5000 }).catch(() => {});
     }
     process.exitCode = 1;
   } finally {
