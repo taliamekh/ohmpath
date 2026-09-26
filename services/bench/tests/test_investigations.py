@@ -200,9 +200,9 @@ def test_cancelled_image_call_cleans_temporary_file_and_snapshot(tmp_path):
     assert entered.wait(1)
     assert service.cancel(sid, turn)["status"] == "cancelled"
     assert exited.wait(1)
-    deadline = time.monotonic() + 1
-    while observed["path"].exists() and time.monotonic() < deadline:
-        time.sleep(.005)
+    worker = service.jobs[turn]["worker"]
+    worker.join(timeout=1)
+    assert not worker.is_alive()
     assert observed["during"] == image
     assert not observed["path"].exists()
     assert service.jobs[turn]["image_bytes"] is None
