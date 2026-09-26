@@ -171,6 +171,26 @@ def test_rejects_oversized_incomplete_or_declared_huge_images_before_decode(monk
     assert not called
 
 
+@pytest.mark.parametrize("oversized_first", [False, True])
+def test_rejects_repeated_jpeg_frame_headers_before_native_decode(
+    monkeypatch: pytest.MonkeyPatch, oversized_first: bool,
+) -> None:
+    encoded = image_bytes(board(), ".jpg")
+    position = encoded.index(b"\xff\xc0")
+    length = int.from_bytes(encoded[position + 2:position + 4], "big")
+    extra_header = bytearray(encoded[position:position + 2 + length])
+    if oversized_first:
+        extra_header[5:9] = (50_000).to_bytes(2, "big") * 2
+    conflicting = encoded[:2] + bytes(extra_header) + encoded[2:]
+
+    def forbidden_decode(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("conflicting frame headers must be rejected before native decode")
+
+    monkeypatch.setattr(cv2, "imdecode", forbidden_decode)
+    with pytest.raises(ValueError):
+        call(VisualTracker(), str(uuid4()), 1, conflicting)
+
+
 def test_short_cpu_replay_records_observed_time_without_promising_frame_rate() -> None:
     tracker = VisualTracker()
     context = str(uuid4())

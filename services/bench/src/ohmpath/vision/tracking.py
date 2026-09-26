@@ -64,10 +64,12 @@ def _dimensions(raw: bytes) -> tuple[int, int]:
             if length < 2 or position + length > len(raw):
                 raise ValueError("Image has an incomplete JPEG header.")
             if marker in (0xC0, 0xC1, 0xC2):
-                if length < 8 or raw[position + 2] != 8:
+                if dimensions is not None or length < 8 or raw[position + 2] != 8:
                     raise ValueError("Image has an invalid JPEG frame header.")
                 height = int.from_bytes(raw[position + 3:position + 5], "big")
                 width = int.from_bytes(raw[position + 5:position + 7], "big")
+                if not 1 <= width <= MAX_WIDTH or not 1 <= height <= MAX_HEIGHT:
+                    raise ValueError("Image dimensions exceed the tracking limit.")
                 dimensions = (width, height)
             if marker == 0xDA:
                 saw_scan = True
