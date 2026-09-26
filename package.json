@@ -1,0 +1,29 @@
+{
+  "name": "ohmpath",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Ohm Path desktop electronics workbench",
+  "main": "apps/desktop/src/main/main.cjs",
+  "packageManager": "pnpm@11.25.0",
+  "scripts": {
+    "dev": "vite --config apps/desktop/vite.config.ts --host 127.0.0.1",
+    "build": "tsc --noEmit && vite build --config apps/desktop/vite.config.ts",
+    "start": "electron .",
+    "test:desktop-unit": "node --test tests/unit/*.test.cjs",
+    "test:desktop": "playwright test --config tests/end-to-end/playwright.config.ts"
+  },
+  "dependencies": {
+    "react": "19.2.0",
+    "react-dom": "19.2.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.63.0",
+    "@types/node": "24.10.1",
+    "@types/react": "19.2.2",
+    "@types/react-dom": "19.2.2",
+    "@vitejs/plugin-react": "5.1.1",
+    "electron": "41.1.0",
+    "typescript": "5.9.3",
+    "vite": "7.3.1"
+  }
+}
