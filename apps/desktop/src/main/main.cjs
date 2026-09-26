@@ -181,7 +181,7 @@ ipcMain.handle('ohmpath:request', async (event, action, payload) => {
   if (action === 'updateCompanion') {
     if (!['idle', 'listening', 'thinking', 'speaking', 'paused', 'error'].includes(payload.activity)
         || typeof payload.caption !== 'string' || payload.caption.length > 500 || typeof payload.reducedMotion !== 'boolean') throw new Error('Invalid companion state.');
-    if (payload.expression !== undefined && !['neutral', 'thinking', 'stumped', 'happy'].includes(payload.expression)) throw new Error('Invalid guide expression.');
+    if (payload.expression !== undefined && !['neutral', 'thinking', 'stumped', 'happy', 'smug', 'weary'].includes(payload.expression)) throw new Error('Invalid guide expression.');
     sendCompanionState({ activity: payload.activity, expression: payload.expression || 'neutral', caption: payload.caption, reducedMotion: payload.reducedMotion });
     return { enabled: Boolean(companionWindow && !companionWindow.isDestroyed()) };
   }

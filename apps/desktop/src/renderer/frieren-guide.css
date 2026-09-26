@@ -1,29 +1,7 @@
-.frieren-guide { position: relative; width: 220px; height: 340px; overflow: hidden; flex-shrink: 0; }
-.frieren-sprite-stage { position: relative; width: 100%; aspect-ratio: 1 / 2; transform-origin: 50% 90%; animation: frieren-breathe 6s ease-in-out infinite; }
-.frieren-sprite { width: 100%; height: 100%; background-repeat: no-repeat; background-position: center top; background-size: 100% 100%; }
-.frieren-guide[data-expression="thinking"] .frieren-sprite { background-size: 300% 100%; background-position: left top; }
-.frieren-guide[data-expression="stumped"] .frieren-sprite { background-size: 300% 100%; background-position: center top; }
-.frieren-guide[data-expression="happy"] .frieren-sprite { background-size: 300% 100%; background-position: right top; }
+.frieren-guide { position: relative; width: 220px; height: 310px; overflow: hidden; flex-shrink: 0; }
+.frieren-sprite-stage { position: relative; width: 100%; height: 100%; }
+.frieren-sprite { width: 100%; height: 100%; }
 .frieren-guide.compact { width: 110px; height: 150px; }
-.frieren-guide.activity-thinking .frieren-sprite-stage { animation: frieren-think 4s ease-in-out infinite; }
-.frieren-guide.activity-paused .frieren-sprite-stage, .frieren-guide.still .frieren-sprite-stage { animation: none; }
-.frieren-guide.activity-paused { opacity: .72; }
-.frieren-blink, .frieren-talk { position: absolute; inset: 0; background-repeat: no-repeat; background-size: 200% 100%; opacity: 0; pointer-events: none; }
-.frieren-blink { background-position: left top; }
-.frieren-talk { background-position: right top; }
-.frieren-guide[data-expression="neutral"].activity-idle .frieren-blink,
-.frieren-guide[data-expression="neutral"].activity-listening .frieren-blink { animation: frieren-blink 6.8s steps(1, end) infinite; }
-.frieren-guide[data-expression="neutral"].activity-idle .frieren-sprite,
-.frieren-guide[data-expression="neutral"].activity-listening .frieren-sprite { animation: frieren-rest 6.8s steps(1, end) infinite; }
-/* The speaking state is supplied by real playback start/end callbacks. Loading
-   an answer or connecting an account never starts this animation. */
-.frieren-guide.activity-speaking .frieren-talk { animation: frieren-talk .23s steps(1, end) infinite; }
-.frieren-guide.activity-speaking .frieren-sprite { animation: frieren-listen .23s steps(1, end) infinite; }
-.frieren-guide.still .frieren-blink, .frieren-guide.still .frieren-talk, .frieren-guide.still .frieren-sprite { animation: none !important; }
-@keyframes frieren-breathe { 0%,100% { transform: translateY(0); } 50% { transform: translateY(3px); } }
-@keyframes frieren-think { 0%,100% { transform: rotate(-1deg); } 50% { transform: rotate(1deg); } }
-@keyframes frieren-blink { 0%,96%,100% { opacity: 0; } 97%,99% { opacity: 1; } }
-@keyframes frieren-rest { 0%,96%,100% { opacity: 1; } 97%,99% { opacity: 0; } }
-@keyframes frieren-talk { 0%,100% { opacity: 0; } 50% { opacity: 1; } }
-@keyframes frieren-listen { 0%,100% { opacity: 1; } 50% { opacity: 0; } }
-@media (prefers-reduced-motion: reduce) { .frieren-sprite-stage, .frieren-sprite, .frieren-blink, .frieren-talk { animation: none !important; } }
+.frieren-guide.activity-paused { opacity: .78; }
+/* One registered pose is held for each expression. Motion deforms its outer
+   regions in place; blinking never replaces the head or the whole body. */
