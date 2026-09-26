@@ -24,6 +24,10 @@ test('camera focus keeps a synthetic preview mounted through snapshot and review
     browser = await chromium.connectOverCDP(endpoint);
     const context = browser.contexts()[0];
     const page = context.pages()[0] || await context.waitForEvent('page');
+    // Retained standalone Photo help coexists with the camera review drawer.
+    await page.getByRole('button', { name: 'Photo help', exact: false }).first().click();
+    await expect(page.getByLabel('What would you like help with?')).toBeVisible();
+    await page.getByRole('button', { name: 'Camera help', exact: false }).first().click();
     const camera = page.getByRole('region', { name: 'Camera workspace' });
     await expect(camera.getByText('Overview camera is off')).toBeVisible();
     const video = await camera.locator('video').elementHandle();
@@ -74,6 +78,8 @@ test('camera focus keeps a synthetic preview mounted through snapshot and review
     expect(await camera.evaluate((workspace) => document.fullscreenElement === workspace || workspace.classList.contains('is-fallback-focus'))).toBe(true);
     expect((await audit()).captures).toHaveLength(1);
     expect((await audit()).asks).toHaveLength(0);
+    await review.locator('label', { hasText: 'What would you like help with?' }).click();
+    await expect(review.getByLabel('What would you like help with?')).toBeFocused();
     await review.getByLabel('What would you like help with?').fill('Where is the red pad?');
     await review.getByRole('button', { name: 'Ask about these images' }).click();
     await expect(review.locator('.photo-help-explanation')).toHaveText('Replay explanation for Where is the red pad?');
