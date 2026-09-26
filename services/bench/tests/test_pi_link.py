@@ -33,6 +33,16 @@ def test_nonfinite_travel_configuration_is_rejected():
         ControllerConfig(min_yaw_deg=float("nan"))
 
 
+@pytest.mark.parametrize("invalid", [float("nan"), float("inf"), float("-inf"), True])
+def test_controller_reset_rejects_nonfinite_or_boolean_setpoints(invalid):
+    controller = CrosshairController()
+    with pytest.raises(ValueError, match="finite numbers"):
+        controller.reset(yaw_deg=invalid)
+    with pytest.raises(ValueError, match="finite numbers"):
+        controller.reset(pitch_deg=invalid)
+    assert controller.position_deg == (0.0, 0.0)
+
+
 def test_command_receiver_checks_heartbeat_without_external_watchdog_tick():
     service = PiControlService(initial_revisions=REVISIONS, allowed_targets=frozenset({"pad-A"}))
     service.link_state(True, now_monotonic_s=10)
@@ -233,6 +243,11 @@ def test_command_idempotency_payload_hash_and_epoch_checks() -> None:
     assert first.state == AckState.COMPLETED
     assert duplicate == first
     assert len(driver.steps) == 1
+    changed_expiry = service.submit(replace(command, expires_at_monotonic_s=1.8), now_monotonic_s=1.1)
+    assert changed_expiry.state == AckState.REJECTED
+    assert changed_expiry.reason == "command_id_payload_conflict"
+    wire_command = replace(command, command_id="wire-1", ttl_ms=500)
+    assert wire_command.payload_hash() == replace(wire_command, expires_at_monotonic_s=1.8).payload_hash()
     changed = service.submit(_command(yaw=0.75, connection_epoch=service.connection_epoch,
                                       arming_epoch=service.arming_epoch), now_monotonic_s=1.2)
     assert changed.state == AckState.REJECTED
@@ -273,6 +288,22 @@ def test_command_target_travel_speed_and_ledger_limits() -> None:
                        connection_epoch=rate_limited.connection_epoch,
                        arming_epoch=rate_limited.arming_epoch)
     assert rate_limited.submit(command, now_monotonic_s=1.0).reason == "speed_limit_exceeded"
+
+
+def test_mock_receiver_enforces_minimum_interval_even_for_tiny_steps() -> None:
+    driver = MockMotorDriver()
+    service = PiControlService(driver=driver, initial_revisions=REVISIONS,
+                               allowed_targets=frozenset({"pad-A"}), min_step_interval_s=.15)
+    service.link_state(True, now_monotonic_s=1.0)
+    epochs = {"connection_epoch": service.connection_epoch, "arming_epoch": service.arming_epoch}
+    first = service.submit(_command("first", yaw=.1, deadline=1.5, **epochs), now_monotonic_s=1.0)
+    assert first.state == AckState.COMPLETED
+    too_soon = service.submit(_command("rapid", yaw=.001, deadline=1.5, **epochs), now_monotonic_s=1.01)
+    assert too_soon.reason == "step_interval_too_short"
+    assert len(driver.steps) == 1
+    later = service.submit(_command("later", yaw=.1, deadline=1.5, **epochs), now_monotonic_s=1.16)
+    assert later.state == AckState.COMPLETED
+    assert len(driver.steps) == 2
 
 
 def test_expiry_ttl_watchdog_and_unknown_outcome_are_fail_closed() -> None:

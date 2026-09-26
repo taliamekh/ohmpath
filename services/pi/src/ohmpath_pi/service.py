@@ -54,8 +54,10 @@ class MotionCommand:
     def payload_hash(self) -> str:
         payload = asdict(self)
         # Monotonic clocks differ by host. The absolute local deadline is not part of
-        # the retry identity; the wire TTL is stable across an idempotent retry.
-        payload.pop("expires_at_monotonic_s", None)
+        # the wire retry identity when a stable TTL is supplied. Direct local
+        # commands without ttl_ms must bind their deadline to the payload hash.
+        if self.ttl_ms is not None:
+            payload.pop("expires_at_monotonic_s", None)
         canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
         return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
@@ -262,6 +264,8 @@ class PiControlService:
                 reason = "yaw_travel_limit"
             elif not (self.pitch_bounds_deg[0] <= self._mock_position_deg[1] + command.pitch_delta_deg <= self.pitch_bounds_deg[1]):
                 reason = "pitch_travel_limit"
+            elif self._last_step_time is not None and now - self._last_step_time < self.min_step_interval_s:
+                reason = "step_interval_too_short"
             elif self._last_step_time is not None and max(abs(command.yaw_delta_deg), abs(command.pitch_delta_deg)) > \
                     self.max_speed_deg_s * max(0.0, now - self._last_step_time):
                 reason = "speed_limit_exceeded"

@@ -79,6 +79,9 @@ class CrosshairController:
         return self._iteration
 
     def reset(self, *, yaw_deg: float = 0.0, pitch_deg: float = 0.0) -> None:
+        if any(isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value)
+               for value in (yaw_deg, pitch_deg)):
+            raise ValueError("initial yaw and pitch must be finite numbers")
         if not (self.config.min_yaw_deg <= yaw_deg <= self.config.max_yaw_deg):
             raise ValueError("initial yaw is outside configured travel")
         if not (self.config.min_pitch_deg <= pitch_deg <= self.config.max_pitch_deg):
