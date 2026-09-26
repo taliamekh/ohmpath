@@ -6,7 +6,9 @@ import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 
 type Region = { x0: number; y0: number; x1: number; y1: number };
-const FACE: Region = { x0: .43, y0: .13, x1: .57, y1: .24 };
+const EYES: Region = { x0: .42, y0: .17, x1: .61, y1: .21 };
+const UPPER_FACE: Region = { x0: .43, y0: .12, x1: .61, y1: .16 };
+const WAIST: Region = { x0: .45, y0: .51, x1: .55, y1: .72 };
 const OUTER: Region = { x0: .04, y0: .35, x1: .34, y1: .88 };
 const WHOLE: Region = { x0: 0, y0: 0, x1: 1, y1: 1 };
 
@@ -37,7 +39,7 @@ async function canvasHashes(page: import('@playwright/test').Page, region: Regio
   }, region);
 }
 
-test('offline character motion keeps the face anchored and obeys Reduce motion', async () => {
+test('offline character motion blinks locally, anchors the waist, and obeys Reduce motion', async () => {
   const requireElectron = createRequire(resolve('package.json'));
   const dataDir = await mkdtemp(resolve(tmpdir(), 'ohmpath-character-replay-'));
   const desktop = spawn(requireElectron('electron'), [
@@ -67,26 +69,44 @@ test('offline character motion keeps the face anchored and obeys Reduce motion',
       document.dispatchEvent(new Event('visibilitychange'));
     });
     await expect(page.locator('.bench-guide-card .frieren-guide canvas')).toBeVisible();
-    await expect.poll(async () => (await canvasHashes(page, FACE)).opaque).toBeGreaterThan(50);
+    await expect.poll(async () => (await canvasHashes(page, UPPER_FACE)).opaque).toBeGreaterThan(50);
     await page.screenshot({ path: 'runtime/character-bench-idle.png', fullPage: true });
 
-    const faceHashes = new Set<number>();
+    const upperFaceHashes = new Set<number>();
+    const waistHashes = new Set<number>();
     const outerHashes = new Set<number>();
     const wholeHashes = new Set<number>();
-    const deadline = Date.now() + 7600; // Cross the former 6.8-second full-image blink.
+    const deadline = Date.now() + 7600; // Includes at least one 4.8-second blink cycle.
     while (Date.now() < deadline) {
-      const [face, outer, whole] = await Promise.all([
-        canvasHashes(page, FACE), canvasHashes(page, OUTER), canvasHashes(page, WHOLE),
+      const [eyes, upperFace, waist, outer, whole] = await Promise.all([
+        canvasHashes(page, EYES), canvasHashes(page, UPPER_FACE), canvasHashes(page, WAIST),
+        canvasHashes(page, OUTER), canvasHashes(page, WHOLE),
       ]);
-      expect(face.opaque).toBeGreaterThan(50);
-      faceHashes.add(face.hash);
+      expect(eyes.opaque).toBeGreaterThan(20);
+      upperFaceHashes.add(upperFace.hash);
+      waistHashes.add(waist.hash);
       outerHashes.add(outer.hash);
       wholeHashes.add(whole.hash);
       await page.waitForTimeout(90);
     }
-    expect(faceHashes.size, 'the central face must not jump or blink').toBe(1);
+    expect(upperFaceHashes.size, 'the hair and brows must stay anchored').toBe(1);
+    expect(waistHashes.size, 'breathing must not expand or shift the waist').toBe(1);
     expect(outerHashes.size, 'outer cloth/arms should move').toBeGreaterThan(1);
     expect(wholeHashes.size, 'the displayed character should animate').toBeGreaterThan(1);
+
+    // Keep one painted frame at the blink peak for close visual inspection.
+    // This changes only the offline replay clock, then restores native rAF.
+    const openEyes = await canvasHashes(page, EYES);
+    await page.evaluate(() => {
+      const nativeRaf = window.requestAnimationFrame.bind(window);
+      (window as any).__restoreBlinkClock = () => { window.requestAnimationFrame = nativeRaf; };
+      window.requestAnimationFrame = callback => nativeRaf(now =>
+        callback(now + ((3150 - now % 4800 + 4800) % 4800)));
+    });
+    await expect.poll(async () => (await canvasHashes(page, EYES)).hash,
+      { timeout: 3000 }).not.toBe(openEyes.hash);
+    await page.locator('.bench-guide-card .frieren-guide').screenshot({ path: 'runtime/character-neutral-blink.png' });
+    await page.evaluate(() => (window as any).__restoreBlinkClock());
 
     await page.getByRole('button', { name: 'Settings', exact: false }).first().click();
     const previews = page.locator('.guide-expression-preview figure');
@@ -98,7 +118,7 @@ test('offline character motion keeps the face anchored and obeys Reduce motion',
     await page.locator('.guide-expression-preview').screenshot({ path: 'runtime/character-six-expressions.png' });
 
     await page.getByRole('checkbox', { name: /Reduce motion/ }).check();
-    await page.getByRole('button', { name: 'Camera help', exact: false }).first().click();
+    await page.getByRole('button', { name: 'Live help', exact: false }).first().click();
     await expect(page.locator('.bench-guide-card .frieren-guide canvas')).toBeVisible();
     await expect.poll(async () => (await canvasHashes(page, WHOLE)).opaque).toBeGreaterThan(100);
     const still = await canvasHashes(page, WHOLE);

@@ -43,13 +43,13 @@ test('an unexpected render failure shows a private-safe manual recovery screen',
     const recovery = page.getByRole('alert');
     await expect(recovery.getByRole('heading', { name: 'This view needs a fresh start' })).toBeVisible();
     await expect(recovery.getByRole('button', { name: 'Try again' })).toBeVisible();
-    await expect(page.getByRole('heading', { name: /Let’s look at your circuit/ })).toHaveCount(0);
+    await expect(page.getByRole('heading', { name: 'Live help' })).toHaveCount(0);
     expect(await page.locator('body').innerText()).not.toContain('PRIVATE_DIAGNOSTIC_RENDER_SENTINEL');
     expect((await page.evaluate(() => (window as any).ohmpath.request('testAudit'))).actions).toEqual([]);
 
     await page.evaluate(() => { (window as any).__ohmpathRecoveryFault = false; });
     await recovery.getByRole('button', { name: 'Try again' }).click();
-    await expect(page.getByRole('heading', { name: /Let’s look at your circuit/ })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Live help' })).toBeVisible();
     await expect(page.getByRole('region', { name: 'Camera workspace' }).getByText('Overview camera is off')).toBeVisible();
     await expect(page.getByRole('alert')).toHaveCount(0);
     const audit = await page.evaluate(() => (window as any).ohmpath.request('testAudit'));

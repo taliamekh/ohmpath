@@ -2,7 +2,7 @@ import { test, expect, chromium } from '@playwright/test';
 import { spawn } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { resolve } from 'node:path';
-import { mkdtemp } from 'node:fs/promises';
+import { mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 
 test('desktop connects to a real local service and confirms only after readback', async () => {
@@ -27,7 +27,7 @@ test('desktop connects to a real local service and confirms only after readback'
     const page = context.pages()[0] || await context.waitForEvent('page', { timeout: 12000 });
     page.setDefaultTimeout(8000);
     console.log('Electron page ready', page.url());
-    await expect(page.getByRole('heading', { name: /Let’s look at your circuit/ })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Live help' })).toBeVisible();
     await page.getByText('Measurements and circuit tools', { exact: true }).click();
     await page.getByRole('button', { name: 'Create practice bench' }).click();
     await expect(page.getByRole('button', { name: 'Run local solve' })).toBeVisible();
@@ -47,7 +47,12 @@ test('desktop connects to a real local service and confirms only after readback'
     await page.getByRole('button', { name: 'Confirm practice input' }).click();
     await expect(page.getByText('Practice input confirmed and recorded as simulated user input.')).toBeVisible();
     await expect(page.getByLabel('Camera subtitles')).not.toHaveText(pendingReadback);
-    await page.screenshot({ path: 'runtime/desktop-verified.png', fullPage: true });
+    // Capture the viewport directly without resizing the hidden native window.
+    const capture = await context.newCDPSession(page);
+    try {
+      const screenshot = await capture.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
+      await writeFile('runtime/desktop-verified.png', Buffer.from(screenshot.data, 'base64'));
+    } finally { await capture.detach(); }
     const result = await page.evaluate(async () => {
       const api = (window as any).ohmpath;
       const sessions = await api.request('sessions');

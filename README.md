@@ -6,6 +6,8 @@ A live electronics bench assistant that sees the circuit, listens to the person,
 
 The [afternoon handoff](docs/development/afternoon-report.md) records the latest countryside theme, simplified logo, expressive guide, fullscreen/subtitles, Photo help and silent verification follow-up.
 
+The [theme refinement](docs/development/theme-refinement.md) records the wooden signpost navigation, Live help name, complete panel palette and localized blink/breathing corrections.
+
 Repository: [taliamekh/ohmpath](https://github.com/taliamekh/ohmpath).
 
 ## Start here
@@ -50,7 +52,7 @@ python scripts/setup.py
 
 Setup uses the pinned dependency locks and pnpm 11.25.0. `python scripts/setup.py --check` checks the prepared files without installing. The alternate `./scripts/setup.ps1 -WithSpeech` also installs the free local whisper.cpp worker and English speech model where local PowerShell policy permits; the application does not override that policy. ngspice is required for actual local solves; KiCad 10 is required for schematic export. Existing Windows per-user installations are detected. Optional `OHMPATH_NGSPICE` names a reviewed executable for standalone service use; the KiCad adapter currently pins the reviewed per-user KiCad 10 installation.
 
-Start in **Camera help**, or choose **Photo help** to upload a circuit photo or diagram without a camera or turret. Ask explicitly to send the selected images through the signed-in subscription. Camera previews start only after connection; analysis uses the snapshot you choose, not continuous unattended capture.
+Start in **Live help**, or choose **Photo help** to upload a circuit photo or diagram without a camera or turret. Ask explicitly to send the selected images through the signed-in subscription. Camera previews start only after connection; analysis uses the snapshot you choose, not continuous unattended capture.
 
 Use **Full screen** to hide navigation and place Frieren at the bottom-right. **Subtitles on/off** also works without audio; the preference is available in Settings and survives relaunch. Snapshot questions open inside the camera workspace. **Back to camera** hides the review drawer while keeping your question and preview available. Press Escape to leave fullscreen, or **Pause previews** to stop capture.
 
@@ -62,7 +64,7 @@ The subscription investigator requires the existing signed-in Codex CLI version 
 
 ## Available tools in the interface
 
-- **Camera help:** large overview/Pi views, explicit snapshot questions and Frieren. Expand **Measurements and circuit tools** for practice/manual sessions, reviewed KiCad import, actual ngspice, signed readings, readback/confirmation, corrections, fault comparisons and local report export. Manual confirmation records what the user reports; it does not verify the instrument.
+- **Live help:** large overview/Pi views, explicit snapshot questions and Frieren. Expand **Measurements and circuit tools** for practice/manual sessions, reviewed KiCad import, actual ngspice, signed readings, readback/confirmation, corrections, fault comparisons and local report export. Manual confirmation records what the user reports; it does not verify the instrument.
 - **Photo help:** upload or explicitly paste up to three circuit photos or diagrams, with short answers, follow-up questions and image annotations, without a camera or turret. Images and completed replies stay in memory across page changes; Clear workspace releases them. Only Ask sends images. Quitting/reloading discards the temporary workspace. Photo reasoning has no practice graph or model tools. It cannot confirm measurements or operate devices.
 - **Circuit and firmware tools** (inside the expanded bench tools): logical assembly guidance, supplied firmware-log analysis and the evidence-backed circuit investigator. Historical Circuit lab source/templates remain preserved; its menu was replaced at the user's request.
 - **Devices:** an explicitly selected local overview camera, optional authenticated Pi camera preview through an already prepared SSH tunnel, offline yaw/pitch calibration candidates, and a synthetic aiming animation. Both actual camera feeds and physical calibration remain unverified.

@@ -40,7 +40,7 @@ test('offline Photo help retains completed workspace across tabs and clears it e
     page.setDefaultTimeout(8000);
     const audit = () => page.evaluate(() => (window as any).ohmpath.request('testAudit') as Promise<ReplayAudit>);
     const photoTab = page.getByRole('button', { name: 'Photo help', exact: false }).first();
-    const cameraTab = page.getByRole('button', { name: 'Camera help', exact: false }).first();
+    const cameraTab = page.getByRole('button', { name: 'Live help', exact: false }).first();
 
     await photoTab.click();
     expect((await audit()).pastes).toBe(0); // Rendering Photo help never reads the clipboard.

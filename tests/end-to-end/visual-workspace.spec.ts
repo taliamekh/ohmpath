@@ -2,8 +2,20 @@ import { test, expect, chromium } from '@playwright/test';
 import { spawn } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { resolve } from 'node:path';
-import { mkdtemp } from 'node:fs/promises';
+import { mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
+
+async function captureViewport(page: import('@playwright/test').Page, path: string, top = true) {
+  if (top) await page.evaluate(() => { window.scrollTo(0, 0); document.querySelector('.scroll-area')?.scrollTo(0, 0); });
+  await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => resolve())));
+  const cdp = await page.context().newCDPSession(page);
+  try {
+    const image = await cdp.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
+    await writeFile(path, Buffer.from(image.data, 'base64'));
+  } finally {
+    await cdp.detach();
+  }
+}
 
 test('visual workspace stays opt-in and photo and turret controls fail closed', async () => {
   const dataDir = await mkdtemp(resolve(tmpdir(), 'ohmpath-visual-ui-'));
@@ -25,8 +37,22 @@ test('visual workspace stays opt-in and photo and turret controls fail closed', 
     const context = browser.contexts()[0];
     const page = context.pages()[0] || await context.waitForEvent('page');
     page.setDefaultTimeout(10000);
+    await page.setViewportSize({ width: 980, height: 700 });
 
-    await expect(page.getByRole('heading', { name: /Let’s look at your circuit/ })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Live help' })).toBeVisible();
+    await expect(page.locator('.brand-lockup')).toHaveText('Ohm Path');
+    await expect(page.getByText('A little guidance goes far', { exact: false })).toHaveCount(0);
+    const selectedSign = page.getByRole('navigation', { name: 'Workspace' }).locator('.nav-item.selected');
+    await expect(selectedSign).toHaveAttribute('aria-current', 'page');
+    const signStyle = await selectedSign.evaluate((node) => ({
+      wood: getComputedStyle(node, '::before').backgroundImage,
+      filter: getComputedStyle(node, '::before').filter,
+      outline: getComputedStyle(node, '::after').content,
+    }));
+    expect(signStyle.wood).toContain('wooden-sign');
+    expect(signStyle.filter).toContain('brightness(1.45)');
+    expect(signStyle.outline).toBe('none');
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(981);
     const camera = page.getByRole('region', { name: 'Camera workspace' });
     await expect(camera.getByText('Overview camera is off')).toBeVisible();
     await expect(camera.getByRole('button', { name: 'Ask about this view' })).toBeDisabled();
@@ -34,7 +60,10 @@ test('visual workspace stays opt-in and photo and turret controls fail closed', 
     await camera.getByRole('button', { name: 'Both' }).click();
     await expect(camera.getByText('Pi camera is off')).toBeVisible();
     await camera.getByRole('button', { name: 'Overview', exact: true }).click();
-    await page.screenshot({ path: 'runtime/visual-workspace.png', fullPage: true });
+    await captureViewport(page, 'runtime/visual-workspace.png');
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await captureViewport(page, 'runtime/theme-live-1440.png');
+    await page.setViewportSize({ width: 980, height: 700 });
 
     const pausedSessionId = await page.evaluate(async () => {
       const api = (window as any).ohmpath;
@@ -43,7 +72,7 @@ test('visual workspace stays opt-in and photo and turret controls fail closed', 
       return session.session_id as string;
     });
     await page.reload({ waitUntil: 'domcontentloaded' });
-    await expect(page.getByRole('heading', { name: /Let’s look at your circuit/ })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Live help' })).toBeVisible();
     const pausedSession = await page.evaluate(async (sid) => (window as any).ohmpath.request('session', { sid }), pausedSessionId);
     expect(pausedSession.status).toBe('paused');
     const reloadedCamera = page.getByRole('region', { name: 'Camera workspace' });
@@ -57,6 +86,7 @@ test('visual workspace stays opt-in and photo and turret controls fail closed', 
     await expect(page.getByRole('heading', { name: /Photo help/ })).toBeVisible();
     await expect(page.getByText('Start with an image')).toBeVisible();
     await expect(page.getByText('No camera needed')).toBeVisible();
+    await captureViewport(page, 'runtime/theme-photo-980.png');
     await page.getByLabel('What would you like help with?').fill('Which lead is this?');
     await expect(page.getByRole('button', { name: 'Ask about these images' })).toBeDisabled();
     await expect(page.locator('.photo-help-answer')).toHaveCount(0);
@@ -91,6 +121,10 @@ test('visual workspace stays opt-in and photo and turret controls fail closed', 
     expect(imageCheck.released.released).toBe(true);
     expect(imageCheck.rejected).toMatch(/no longer available/i);
 
+    await page.getByRole('navigation', { name: 'Workspace' }).getByRole('button', { name: 'Devices' }).click();
+    await expect(page.getByRole('heading', { name: 'Devices & guidance' })).toBeVisible();
+    await captureViewport(page, 'runtime/theme-devices-980.png');
+
     await page.getByRole('button', { name: 'Settings', exact: false }).first().click();
     await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible();
     const initialTurret = await page.evaluate(async () => (window as any).ohmpath.request('turretStatus'));
@@ -121,14 +155,26 @@ test('visual workspace stays opt-in and photo and turret controls fail closed', 
       });
       expect(decoded, `${expression} sprite should decode`).toBe(true);
     }
-    await page.screenshot({ path: 'runtime/visual-settings.png', fullPage: true });
-
     const companionPage = context.waitForEvent('page');
     await page.getByLabel('Floating desktop companion').click();
     const companion = await companionPage;
     await expect(companion.getByRole('img', { name: /Frieren/ })).toBeVisible();
     expect(await companion.evaluate(() => typeof (window as any).ohmpath)).toBe('undefined');
     await page.getByLabel('Floating desktop companion').click();
+    await page.getByRole('navigation', { name: 'Workspace' }).getByRole('button', { name: 'Live help' }).click();
+    await page.getByText('Measurements and circuit tools', { exact: true }).click();
+    const summaryContrast = await page.locator('.bench-advanced > summary').evaluate((summary) => {
+      const foreground = getComputedStyle(summary).color.match(/[\d.]+/g)!.slice(0, 3).map(Number);
+      const background = getComputedStyle(summary.parentElement!).backgroundColor.match(/[\d.]+/g)!.slice(0, 3).map(Number);
+      const luminance = (rgb: number[]) => rgb.map(value => {
+        const unit = value / 255;
+        return unit <= .04045 ? unit / 12.92 : ((unit + .055) / 1.055) ** 2.4;
+      }).reduce((sum, value, index) => sum + value * [.2126, .7152, .0722][index], 0);
+      const [light, dark] = [luminance(foreground), luminance(background)].sort((a, b) => b - a);
+      return (light + .05) / (dark + .05);
+    });
+    expect(summaryContrast).toBeGreaterThanOrEqual(4.5);
+    await expect(page.getByRole('button', { name: 'Run local solve' })).toBeVisible();
     await page.close();
     await expect.poll(() => desktop.exitCode, { timeout: 8000 }).toBe(0);
   } finally {
