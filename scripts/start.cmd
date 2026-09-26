@@ -1,7 +1,7 @@
 @echo off
 cd /d "%~dp0.."
 if not exist "node_modules\electron\dist\electron.exe" (
-  echo Run scripts\setup.ps1 first to prepare Ohm Path.
+  echo Run python scripts\setup.py first to prepare Ohm Path.
   pause
   exit /b 1
 )
