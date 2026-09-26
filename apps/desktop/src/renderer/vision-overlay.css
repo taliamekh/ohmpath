@@ -1,0 +1,8 @@
+.vision-overlay-target { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 2; cursor: crosshair; }
+.vision-overlay-target:focus-visible { outline: 3px solid #f5d982; outline-offset: -4px; }
+.vision-overlay-status { position: absolute; top: 12px; left: 12px; right: 12px; z-index: 3; pointer-events: none; display: grid; gap: 3px; width: fit-content; max-width: calc(100% - 24px); padding: 9px 12px; border: 1px solid #a5b685; border-radius: 9px; background: #10291fee; color: #faf3d8; font-size: 12px; }
+.vision-overlay-status strong { color: #f5d982; font-size: 13px; }
+.vision-overlay-status small { color: #d2daba; }
+.camera-vision-controls { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 12px 0; }
+.camera-vision-controls p { margin: 0; color: inherit; font-size: 12px; opacity: .9; }
+.camera-workspace.is-focused .camera-vision-controls { color: #e8edcf; }

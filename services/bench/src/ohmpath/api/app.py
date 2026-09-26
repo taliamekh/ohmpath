@@ -14,7 +14,7 @@ from typing import Literal
 
 from fastapi import Depends, FastAPI, Header, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from ohmpath import __version__
 from ohmpath.ai.investigations import Investigations
@@ -183,6 +183,23 @@ class CalibrationFitInput(Input):
     validation_samples: list[CalibrationSampleInput] = Field(max_length=100)
 
 
+class VisionPoint(Input):
+    x: float = Field(ge=0, le=1, allow_inf_nan=False)
+    y: float = Field(ge=0, le=1, allow_inf_nan=False)
+
+
+class VisionTrackInput(Input):
+    context_id: str = Field(min_length=36, max_length=36)
+    source: Literal["overview", "pi"]
+    sequence: int = Field(ge=1, le=2_147_483_647)
+    image_base64: str = Field(min_length=1, max_length=700_000)
+    point: VisionPoint | None = None
+
+
+class VisionResetInput(Input):
+    context_id: str = Field(min_length=36, max_length=36)
+
+
 def create_app(data_dir: Path, user_token: str, model_token: str | None = None) -> FastAPI:
     if len(user_token) < 32 or (model_token is not None and (len(model_token) < 32 or model_token == user_token)):
         raise ValueError("Distinct ephemeral capabilities of at least 32 characters are required")
@@ -193,6 +210,9 @@ def create_app(data_dir: Path, user_token: str, model_token: str | None = None) 
     photo_help = PhotoHelp()
     investigation_admission = threading.RLock()
     simulation_slots = threading.BoundedSemaphore(2)
+    from ohmpath.vision.tracking import VisualTracker
+    vision_tracker = VisualTracker()
+    vision_admission = threading.BoundedSemaphore(1)
 
     def accepted_graph(state):
         if state.get("imported_graph") is not None:
@@ -215,6 +235,7 @@ def create_app(data_dir: Path, user_token: str, model_token: str | None = None) 
     app.state.store = store
     app.state.investigations = investigations
     app.state.photo_help = photo_help
+    app.state.vision_tracker = vision_tracker
 
     def role(authorization: str = Header(default="")):
         if authorization.startswith("Bearer "):
@@ -247,7 +268,7 @@ def create_app(data_dir: Path, user_token: str, model_token: str | None = None) 
         body = bytearray()
         async for chunk in request.stream():
             body.extend(chunk)
-            cap = 8_200_000 if request.url.path == "/v1/photo-help/investigate" else 6_800_000 if request.url.path.endswith("/imports") else 2_800_000 if request.url.path.endswith(("/candidates/ocr", "/investigate/image")) else 2_100_000 if request.url.path.endswith(("/voice/transcribe", "/voice/transcribe-question")) else 65536
+            cap = 8_200_000 if request.url.path == "/v1/photo-help/investigate" else 6_800_000 if request.url.path.endswith("/imports") else 2_800_000 if request.url.path.endswith(("/candidates/ocr", "/investigate/image")) else 2_100_000 if request.url.path.endswith(("/voice/transcribe", "/voice/transcribe-question")) else 720_000 if request.url.path == "/v1/vision/track" else 65536
             if len(body) > cap:
                 return JSONResponse(status_code=413, content={"error": "request_too_large"})
         request._body = bytes(body)
@@ -616,6 +637,46 @@ def create_app(data_dir: Path, user_token: str, model_token: str | None = None) 
     @app.post("/v1/photo-help/cancel", dependencies=[Depends(user_scope)])
     def photo_help_cancel(body: PhotoCancelInput):
         return photo_help.cancel(body.context_id, body.turn_id)
+
+    @app.post("/v1/vision/track", dependencies=[Depends(user_scope)])
+    async def vision_track(request: Request):
+        try:
+            body = VisionTrackInput.model_validate(await request.json())
+            image = base64.b64decode(body.image_base64, validate=True)
+        except (json.JSONDecodeError, UnicodeDecodeError, binascii.Error, ValueError, ValidationError):
+            raise DomainError("vision_input_invalid", "The image or tracking request is invalid.", 422) from None
+        if not vision_admission.acquire(blocking=False):
+            raise DomainError("vision_busy", "Wait for the current local vision frame to finish.", 409)
+        try:
+            result = vision_tracker.process(
+                context_id=body.context_id, source=body.source, sequence=body.sequence, image=image,
+                point=(body.point.x, body.point.y) if body.point else None,
+            )
+            return {**result, "local_only": True, "observation_only": True}
+        except ValueError:
+            raise DomainError("vision_input_invalid", "The image or tracking request is invalid.", 422) from None
+        except Exception:
+            raise DomainError("vision_failed", "Local visual tracking could not finish this frame.", 500) from None
+        finally:
+            vision_admission.release()
+
+    @app.post("/v1/vision/reset", dependencies=[Depends(user_scope)])
+    async def vision_reset(request: Request):
+        try:
+            body = VisionResetInput.model_validate(await request.json())
+        except (json.JSONDecodeError, UnicodeDecodeError, ValidationError):
+            raise DomainError("vision_input_invalid", "The tracking reset request is invalid.", 422) from None
+        if not vision_admission.acquire(blocking=False):
+            raise DomainError("vision_busy", "Wait for the current local vision frame to finish.", 409)
+        try:
+            try:
+                vision_tracker.reset(body.context_id)
+            except ValueError:
+                raise DomainError("vision_input_invalid", "The tracking reset request is invalid.", 422) from None
+            return {"context_id": body.context_id.lower(), "reset": True,
+                    "local_only": True, "observation_only": True}
+        finally:
+            vision_admission.release()
 
     @app.get("/v1/sessions/{sid}/aim/status", dependencies=[Depends(user_scope)])
     def aim_status(sid: str):
