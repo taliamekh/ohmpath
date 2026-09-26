@@ -53,7 +53,9 @@ test('an unexpected render failure shows a private-safe manual recovery screen',
     await expect(page.getByRole('region', { name: 'Camera workspace' }).getByText('Overview camera is off')).toBeVisible();
     await expect(page.getByRole('alert')).toHaveCount(0);
     const audit = await page.evaluate(() => (window as any).ohmpath.request('testAudit'));
-    expect([...new Set(audit.actions)].sort()).toEqual(['disableCamera', 'health', 'sessions', 'voiceStatus']);
+    expect([...new Set(audit.actions)].sort()).toEqual([
+      'disableCamera', 'elevenLabsStatus', 'health', 'sessions', 'voiceStatus',
+    ]);
     await page.close();
     await expect.poll(() => desktop.exitCode, { timeout: 8000 }).toBe(0);
   } finally {

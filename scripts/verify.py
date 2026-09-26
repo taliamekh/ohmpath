@@ -30,6 +30,8 @@ NO_VOICE_PYTEST = (
     "services/bench/tests/test_session.py",
     "services/bench/tests/test_vision_frames.py",
     "services/bench/tests/test_vision_geometry.py",
+    "services/bench/tests/test_vision_tracking.py",
+    "services/bench/tests/test_vision_tracking_api.py",
     "services/bench/tests/test_vision_meter.py",
     "services/bench/tests/test_windows_ocr.py",
     "services/pi/tests/test_calibration_fit.py",
@@ -37,6 +39,7 @@ NO_VOICE_PYTEST = (
     "services/pi/tests/test_video_server.py",
 )
 NO_VOICE_NODE = (
+    "tests/unit/phone-photos.test.cjs",
     "tests/unit/photo-clipboard.test.cjs",
     "tests/unit/photo-images.test.cjs",
     "tests/unit/photo-upload.test.cjs",
@@ -49,6 +52,9 @@ NO_VOICE_DESKTOP = (
     "tests/end-to-end/photo-help-replay.spec.ts",
     "tests/end-to-end/camera-focus.spec.ts",
     "tests/end-to-end/camera-snapshot-lifecycle.spec.ts",
+    "tests/end-to-end/vision-overlay.spec.ts",
+    "tests/end-to-end/phone-photo-transfer.spec.ts",
+    "tests/end-to-end/phone-photo-page.spec.ts",
     "tests/end-to-end/dual-camera-workspace.spec.ts",
     "tests/end-to-end/pi-camera-recovery.spec.ts",
     "tests/end-to-end/photo-workspace-session.spec.ts",
