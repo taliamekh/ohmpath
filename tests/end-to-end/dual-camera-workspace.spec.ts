@@ -107,6 +107,11 @@ test('two synthetic camera paths preview together and snapshots use the selected
     await camera.getByRole('button', { name: 'Ask about this view' }).click();
     await expect.poll(async () => (await audit()).captures.length).toBe(2);
     expect((await audit()).captures.map((item: any) => item.source)).toEqual(['overview', 'pi']);
+    const pixels = (await audit()).snapshotPixels;
+    expect(pixels.map((item: any) => item.source)).toEqual(['overview', 'pi']);
+    for (const [actual, expected] of [[pixels[0], { r: 229, g: 189, b: 126 }], [pixels[1], { r: 214, g: 140, b: 101 }]] as const) {
+      for (const channel of ['r', 'g', 'b'] as const) expect(Math.abs(actual[channel] - expected[channel])).toBeLessThanOrEqual(24);
+    }
     await expect(review.getByText('Pi snapshot').first()).toBeVisible();
     expect((await audit()).asks).toHaveLength(0);
     await review.getByRole('button', { name: 'Back to camera' }).click();

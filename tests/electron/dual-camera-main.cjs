@@ -13,6 +13,17 @@ function replaceOnce(before, after) {
 replaceOnce("payload.source !== 'overview'", "!['overview', 'pi'].includes(payload.source)");
 replaceOnce("image_id: imageIds[2], name: 'Overview snapshot'",
   "image_id: payload.source === 'pi' ? '10000000-0000-4000-8000-000000000004' : imageIds[2], name: payload.source === 'pi' ? 'Pi snapshot' : 'Overview snapshot'");
+replaceOnce('audit.captures.push({ source: payload.source, captured_at: payload.captured_at, length: payload.data_url.length });', `
+    const captureImage = require('electron').nativeImage.createFromDataURL(payload.data_url);
+    const captureSize = captureImage.getSize();
+    if (captureSize.width !== 640 || captureSize.height !== 360) throw new Error('Unexpected replay snapshot dimensions.');
+    const bitmap = captureImage.toBitmap();
+    const offset = (Math.floor(captureSize.height / 2) * captureSize.width + Math.floor(captureSize.width / 2)) * 4;
+    if (bitmap.length < offset + 4) throw new Error('Could not decode replay snapshot pixels.');
+    // Electron's Windows bitmap bytes are BGRA. Record only this one RGB pixel.
+    audit.snapshotPixels ??= [];
+    audit.snapshotPixels.push({ source: payload.source, r: bitmap[offset + 2], g: bitmap[offset + 1], b: bitmap[offset] });
+    audit.captures.push({ source: payload.source, captured_at: payload.captured_at, length: payload.data_url.length });`);
 
 const replay = new Module(fixturePath, module);
 replay.filename = fixturePath;
