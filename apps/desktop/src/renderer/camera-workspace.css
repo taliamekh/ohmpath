@@ -78,7 +78,7 @@
 .camera-workspace-help-drawer:has(.camera-review-content.is-collapsed) { right: auto; bottom: auto; width: auto; min-height: 0; max-width: min(430px, calc(100% - 32px)); padding: 8px; }
 .camera-workspace-focus-guide, .camera-workspace-focus-bar { display: none; }
 .camera-workspace-focus-caption { position: absolute; left: 50%; bottom: 46px; z-index: 2; display: block; width: max-content; max-width: min(620px, calc(100% - 32px)); max-height: 30%; margin: 0; padding: 7px 11px; overflow: auto; overflow-wrap: anywhere; transform: translateX(-50%); border: 1px solid #81a99b; border-radius: 7px; background: #061513ed; color: #f0faf2; font-size: 13px; line-height: 1.4; text-align: center; white-space: pre-wrap; text-wrap: balance; box-shadow: 0 4px 20px #0008; scrollbar-color: #77b49e #12302a; }
-.camera-workspace:fullscreen, .camera-workspace.is-fallback-focus { position: fixed; inset: 0; z-index: 9999; box-sizing: border-box; width: 100vw; height: 100vh; max-width: none; margin: 0; padding: clamp(12px, 2vh, 24px); border: 0; border-radius: 0; background: #071116; overflow: hidden; }
+.camera-workspace:fullscreen, .camera-workspace.is-fallback-focus { position: fixed; inset: 0; z-index: 9999; box-sizing: border-box; width: 100vw; height: 100vh; max-width: none; margin: 0; padding: 48px clamp(12px, 2vh, 24px) clamp(12px, 2vh, 24px); border: 0; border-radius: 0; background: #071116; overflow: hidden; }
 .camera-workspace.is-focused .camera-workspace-head { flex-shrink: 0; align-items: center; }
 .camera-workspace.is-focused .camera-workspace-head h2 { margin-bottom: 0; font-size: clamp(17px, 1.5vw, 24px); }
 .camera-workspace.is-focused .camera-workspace-head p { display: none; }
