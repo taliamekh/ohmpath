@@ -31,6 +31,7 @@ def test_no_voice_plan_is_an_explicit_allowlist_with_photo_and_camera_coverage()
     assert "tests/electron/photo-clipboard.cjs" in commands[7]
     assert "tests/end-to-end/camera-focus.spec.ts" in commands[8]
     assert "tests/end-to-end/camera-snapshot-lifecycle.spec.ts" in commands[8]
+    assert "tests/end-to-end/dual-camera-workspace.spec.ts" in commands[8]
     assert "tests/end-to-end/photo-help-replay.spec.ts" in commands[8]
     assert "tests/end-to-end/visual-workspace.spec.ts" in commands[8]
     forbidden = ("voice", "speech", "elevenlabs", "live-proof", "live_proof")

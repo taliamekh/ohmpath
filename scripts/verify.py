@@ -49,6 +49,7 @@ NO_VOICE_DESKTOP = (
     "tests/end-to-end/photo-help-replay.spec.ts",
     "tests/end-to-end/camera-focus.spec.ts",
     "tests/end-to-end/camera-snapshot-lifecycle.spec.ts",
+    "tests/end-to-end/dual-camera-workspace.spec.ts",
     "tests/end-to-end/pi-camera-recovery.spec.ts",
     "tests/end-to-end/photo-workspace-session.spec.ts",
     "tests/end-to-end/troubleshoot-lifecycle.spec.ts",
