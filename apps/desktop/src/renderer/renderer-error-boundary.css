@@ -1,0 +1,54 @@
+.renderer-boundary-content { display: contents; }
+.renderer-recovery {
+  box-sizing: border-box;
+  display: grid;
+  min-height: 100vh;
+  place-items: center;
+  padding: 24px;
+  color: #2b4935;
+  background: linear-gradient(110deg, rgba(248, 246, 224, .87), rgba(247, 244, 220, .58)),
+    url("./assets/journey/countryside.png") center / cover no-repeat;
+  font-family: "Segoe UI", Aptos, sans-serif;
+}
+.renderer-recovery-card {
+  box-sizing: border-box;
+  width: min(100%, 500px);
+  padding: 33px 36px;
+  border: 1px solid #a8b995;
+  border-radius: 18px;
+  background: #fffbeeef;
+  box-shadow: 0 20px 55px #374d3452;
+}
+.renderer-recovery-symbol {
+  display: grid;
+  width: 62px;
+  height: 62px;
+  place-items: center;
+  border: 1px solid #9aaf83;
+  border-radius: 50%;
+  color: #426b4b;
+  background: #e9efcf;
+  font: 700 36px/1 Georgia, serif;
+}
+.renderer-recovery-kicker { display: block; margin-top: 18px; color: #587557; font-size: 10px; font-weight: 700; letter-spacing: 2px; }
+.renderer-recovery h1 { margin: 8px 0 11px; color: #2b5139; font: 700 clamp(24px, 4vw, 32px)/1.17 Georgia, serif; }
+.renderer-recovery p { margin: 0; color: #586e59; font-size: 14px; line-height: 1.6; }
+.renderer-recovery button {
+  min-height: 42px;
+  margin-top: 23px;
+  padding: 0 22px;
+  border: 1px solid #4d7551;
+  border-radius: 8px;
+  color: #fff9e8;
+  background: #416b4c;
+  font: 700 13px "Segoe UI", Aptos, sans-serif;
+  cursor: pointer;
+}
+.renderer-recovery button:hover { background: #31583d; }
+.renderer-recovery button:focus-visible { outline: 3px solid #b48338; outline-offset: 3px; }
+.renderer-recovery small { display: block; margin-top: 17px; color: #71856e; font-size: 11px; line-height: 1.45; }
+.renderer-recovery.compact { min-width: 280px; padding: 12px; }
+.renderer-recovery.compact .renderer-recovery-card { padding: 21px; }
+.renderer-recovery.compact .renderer-recovery-symbol { width: 46px; height: 46px; font-size: 27px; }
+.renderer-recovery.compact h1 { font-size: 22px; }
+.renderer-recovery.compact p { font-size: 12px; }
