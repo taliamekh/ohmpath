@@ -10,6 +10,7 @@
     "build": "tsc --noEmit && vite build --config apps/desktop/vite.config.ts",
     "start": "electron .",
     "test:desktop-unit": "node --test tests/unit/*.test.cjs",
+    "test:image-metadata": "electron tests/electron/image-metadata.cjs",
     "test:desktop": "playwright test --config tests/end-to-end/playwright.config.ts"
   },
   "dependencies": {
