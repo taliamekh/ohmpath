@@ -30,7 +30,7 @@ FAILURE_MESSAGES = {
     "allowance_margin_reached": "Codex subscription allowance is too low. Wait for it to reset, then try again.",
     "ordinary_subscription_usage_unavailable": "Codex subscription usage is unavailable. Check usage in Codex, then try again.",
     "codex_allowance_unavailable": "Codex subscription allowance is unavailable. Check usage in Codex, then try again.",
-    "codex_version_mismatch": "The installed Codex version does not match this build. Update Codex, then try again.",
+    "codex_version_mismatch": "Codex and Ohm Path need compatible versions. Check the connection setup before trying again.",
     "codex_config_unavailable": "Photo help could not read local Codex settings. Check the installation, then try again.",
     "cannot_disable_inherited_mcp": "Photo help could not restrict inherited Codex tools. Check the configuration, then try again.",
     "conflicting_inherited_mcp": "Photo help could not restrict inherited Codex tools. Check the configuration, then try again.",

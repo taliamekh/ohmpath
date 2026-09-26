@@ -2,6 +2,7 @@
 
 import json
 import threading
+import time
 from types import SimpleNamespace
 
 import pytest
@@ -153,6 +154,72 @@ def test_restricted_runtime_cancel_before_start_avoids_account_or_model(replay):
     with pytest.raises(ProofFailure, match="investigation_cancelled"):
         runtime.run_investigation("http://127.0.0.1:8765", "x" * 32, "session-1",
                                   "revision-1", "Where should I measure?", cancel_event=cancelled)
+
+
+@pytest.mark.parametrize("blocked_method", ["config/read", "thread/start"])
+def test_restricted_runtime_cancel_interrupts_blocked_preflight_rpc(replay, monkeypatch, blocked_method):
+    entered = threading.Event()
+    released = threading.Event()
+    finished = threading.Event()
+    cancel = threading.Event()
+    calls = []
+
+    class BlockedPreflight(FakeProtocol):
+        def request(self, method, params=None, timeout=10):
+            calls.append(method)
+            if method == blocked_method:
+                entered.set()
+                released.wait(timeout=2)
+            response = super().request(method, params, timeout)
+            if method == blocked_method:
+                finished.set()
+            return response
+
+    monkeypatch.setattr(runtime, "Protocol", BlockedPreflight)
+    canceller = threading.Thread(target=lambda: (entered.wait(timeout=1), cancel.set()))
+    canceller.start()
+    started = time.monotonic()
+    try:
+        with pytest.raises(ProofFailure, match="investigation_cancelled"):
+            runtime.run_investigation("http://127.0.0.1:8765", "x" * 32, "session-1",
+                                      "revision-1", "Where should I measure?", cancel_event=cancel)
+        assert time.monotonic() - started < 1
+        assert FakeProtocol.last.closed
+        assert "turn/start" not in calls
+    finally:
+        released.set()
+        canceller.join(timeout=1)
+    assert finished.wait(timeout=1)
+    assert "turn/start" not in calls
+    if blocked_method == "config/read":
+        assert calls == ["initialize", "config/read"]
+    else:
+        assert calls[-1] == "thread/start"
+
+
+def test_restricted_runtime_deadline_interrupts_blocked_preflight_rpc(replay, monkeypatch):
+    released = threading.Event()
+    calls = []
+
+    class BlockedPreflight(FakeProtocol):
+        def request(self, method, params=None, timeout=10):
+            calls.append(method)
+            if method == "config/read":
+                released.wait(timeout=2)
+            return super().request(method, params, timeout)
+
+    monkeypatch.setattr(runtime, "Protocol", BlockedPreflight)
+    monkeypatch.setattr(runtime, "MAX_TURN_SECONDS", .15)
+    started = time.monotonic()
+    try:
+        with pytest.raises(ProofFailure, match="turn_timeout"):
+            runtime.run_investigation("http://127.0.0.1:8765", "x" * 32, "session-1",
+                                      "revision-1", "Where should I measure?", cancel_event=threading.Event())
+        assert time.monotonic() - started < .75
+        assert FakeProtocol.last.closed
+        assert calls == ["initialize", "config/read"]
+    finally:
+        released.set()
 
 
 def test_restricted_runtime_denies_unknown_dynamic_tool(replay, monkeypatch):
