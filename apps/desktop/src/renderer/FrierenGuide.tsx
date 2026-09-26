@@ -1,4 +1,4 @@
-import CharacterRig from "./CharacterRig";
+import CharacterRig, { type CharacterRigProps } from "./CharacterRig";
 import "./frieren-guide.css";
 
 export type GuideExpression = "neutral" | "thinking" | "stumped" | "happy" | "smug" | "weary";
@@ -13,12 +13,22 @@ const cells: Record<GuideExpression, [number, number]> = {
   neutral: [0, 0], thinking: [1, 0], stumped: [2, 0],
   happy: [0, 1], smug: [1, 1], weary: [2, 1],
 };
-// Eye positions were measured against the three open-eye cells in gestures.png.
-// The lower-row expressions already have closed eyes in the supplied art.
-const openEyes: Array<[{ x: number; y: number }, { x: number; y: number }]> = [
-  [{ x: .455, y: .188 }, { x: .575, y: .188 }],
-  [{ x: .469, y: .188 }, { x: .591, y: .188 }],
-  [{ x: .480, y: .188 }, { x: .600, y: .188 }],
+// Centers and masks measured from the supplied artwork after each cell's
+// offsetX crop. The happy cell provides matching artist-drawn closed eyelids.
+const closedFrame = { columns: 3, rows: 2, column: 0, row: 1, offsetX: .063 };
+const blinks: Array<NonNullable<CharacterRigProps["blink"]>> = [
+  { frame: closedFrame, eyes: [
+    { open: { x: .443, y: .190 }, closed: { x: .430, y: .191 }, radiusX: .043, sourceRadiusX: .039, radiusY: .024 },
+    { open: { x: .560, y: .189 }, closed: { x: .568, y: .183 }, radiusX: .045, sourceRadiusX: .037, radiusY: .025 },
+  ] },
+  { frame: closedFrame, eyes: [
+    { open: { x: .435, y: .187 }, closed: { x: .430, y: .191 }, radiusX: .043, sourceRadiusX: .039, radiusY: .026 },
+    { open: { x: .554, y: .185 }, closed: { x: .568, y: .183 }, radiusX: .045, sourceRadiusX: .037, radiusY: .026 },
+  ] },
+  { frame: closedFrame, eyes: [
+    { open: { x: .430, y: .192 }, closed: { x: .430, y: .191 }, radiusX: .043, sourceRadiusX: .039, radiusY: .022 },
+    { open: { x: .552, y: .188 }, closed: { x: .568, y: .183 }, radiusX: .045, sourceRadiusX: .037, radiusY: .026 },
+  ] },
 ];
 
 export default function FrierenGuide({ activity, expression, reducedMotion = false, compact = false }: Props) {
@@ -30,7 +40,7 @@ export default function FrierenGuide({ activity, expression, reducedMotion = fal
     <div className="frieren-sprite-stage">
       <div className="frieren-sprite" data-source={gestures}>
         <CharacterRig src={gestures} frame={{ columns: 3, rows: 2, column, row, offsetX: [.063, -.007, -.050][column] }}
-          aspectRatio={3 / 4} mouth={{ x: .5, y: mouthY }} eyes={row === 0 ? openEyes[column] : undefined}
+          aspectRatio={3 / 4} mouth={{ x: .5, y: mouthY }} blink={row === 0 ? blinks[column] : undefined}
           activity={activity} expression={face} reducedMotion={reducedMotion} />
       </div>
     </div>

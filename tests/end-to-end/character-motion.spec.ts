@@ -7,7 +7,10 @@ import { tmpdir } from 'node:os';
 
 type Region = { x0: number; y0: number; x1: number; y1: number };
 const EYES: Region = { x0: .42, y0: .17, x1: .61, y1: .21 };
+const LEFT_EYE: Region = { x0: .41, y0: .165, x1: .50, y1: .215 };
+const RIGHT_EYE: Region = { x0: .53, y0: .165, x1: .63, y1: .215 };
 const UPPER_FACE: Region = { x0: .43, y0: .12, x1: .61, y1: .16 };
+const LOWER_FACE: Region = { x0: .44, y0: .215, x1: .60, y1: .255 };
 const WAIST: Region = { x0: .45, y0: .51, x1: .55, y1: .72 };
 const OUTER: Region = { x0: .04, y0: .35, x1: .34, y1: .88 };
 const WHOLE: Region = { x0: 0, y0: 0, x1: 1, y1: 1 };
@@ -29,14 +32,52 @@ async function canvasHashes(page: import('@playwright/test').Page, region: Regio
       Math.max(1, Math.floor(height * (box.y1 - box.y0)))).data;
     let hash = 2166136261;
     let opaque = 0;
+    let iris = 0;
     for (let index = 0; index < pixels.length; index += 4) {
       if (pixels[index + 3] > 0) opaque += 1;
+      if (pixels[index + 3] > 120 && pixels[index + 1] > 70
+          && pixels[index + 1] > pixels[index] * 1.25
+          && pixels[index + 2] > pixels[index] * 1.15) iris += 1;
       for (let channel = 0; channel < 4; channel += 1) {
         hash = Math.imul(hash ^ pixels[index + channel], 16777619);
       }
     }
-    return { hash: hash >>> 0, opaque };
+    return { hash: hash >>> 0, opaque, iris };
   }, region);
+}
+
+async function forceBlinkClock(page: import('@playwright/test').Page) {
+  await page.evaluate(() => {
+    const nativeRaf = window.requestAnimationFrame.bind(window);
+    (window as any).__restoreBlinkClock = () => { window.requestAnimationFrame = nativeRaf; };
+    window.requestAnimationFrame = callback => nativeRaf(now =>
+      callback(now + ((3150 - now % 4800 + 4800) % 4800)));
+  });
+}
+
+async function setOfflineGuideExpression(page: import('@playwright/test').Page,
+                                         expression: 'thinking' | 'stumped') {
+  // The replay deliberately has no fake investigator/model. Use the local React
+  // state setter to inspect the real rig for the two other open-eye poses.
+  await page.locator('.bench-guide-card .frieren-guide').evaluate((element, next) => {
+    const key = Object.keys(element).find(name => name.startsWith('__reactFiber$'));
+    if (!key) throw new Error('Character React fiber was unavailable.');
+    let fiber = (element as any)[key];
+    const current = element.getAttribute('data-expression');
+    while (fiber) {
+      let hook = fiber.memoizedState;
+      while (hook && typeof hook === 'object' && 'next' in hook) {
+        if (hook.memoizedState === current && typeof hook.queue?.dispatch === 'function') {
+          hook.queue.dispatch(next);
+          return;
+        }
+        hook = hook.next;
+      }
+      fiber = fiber.return;
+    }
+    throw new Error('Guide expression setter was unavailable.');
+  }, expression);
+  await expect(page.locator('.bench-guide-card .frieren-guide')).toHaveAttribute('data-expression', expression);
 }
 
 test('offline character motion blinks locally, anchors the waist, and obeys Reduce motion', async () => {
@@ -96,17 +137,43 @@ test('offline character motion blinks locally, anchors the waist, and obeys Redu
 
     // Keep one painted frame at the blink peak for close visual inspection.
     // This changes only the offline replay clock, then restores native rAF.
-    const openEyes = await canvasHashes(page, EYES);
-    await page.evaluate(() => {
-      const nativeRaf = window.requestAnimationFrame.bind(window);
-      (window as any).__restoreBlinkClock = () => { window.requestAnimationFrame = nativeRaf; };
-      window.requestAnimationFrame = callback => nativeRaf(now =>
-        callback(now + ((3150 - now % 4800 + 4800) % 4800)));
-    });
-    await expect.poll(async () => (await canvasHashes(page, EYES)).hash,
-      { timeout: 3000 }).not.toBe(openEyes.hash);
+    await expect.poll(async () => (await canvasHashes(page, LEFT_EYE)).iris).toBeGreaterThan(5);
+    await expect.poll(async () => (await canvasHashes(page, RIGHT_EYE)).iris).toBeGreaterThan(5);
+    const openLeftEye = await canvasHashes(page, LEFT_EYE);
+    const openRightEye = await canvasHashes(page, RIGHT_EYE);
+    const openLowerFace = await canvasHashes(page, LOWER_FACE);
+    await forceBlinkClock(page);
+    await expect.poll(async () => (await canvasHashes(page, LEFT_EYE)).hash,
+      { timeout: 3000 }).not.toBe(openLeftEye.hash);
+    await expect.poll(async () => (await canvasHashes(page, RIGHT_EYE)).hash,
+      { timeout: 3000 }).not.toBe(openRightEye.hash);
+    expect((await canvasHashes(page, LEFT_EYE)).iris, 'left iris must be fully covered at blink peak').toBe(0);
+    expect((await canvasHashes(page, RIGHT_EYE)).iris, 'right iris must be fully covered at blink peak').toBe(0);
+    expect((await canvasHashes(page, LOWER_FACE)).hash,
+      'blink must leave the nose and lower face unchanged').toBe(openLowerFace.hash);
     await page.locator('.bench-guide-card .frieren-guide').screenshot({ path: 'runtime/character-neutral-blink.png' });
     await page.evaluate(() => (window as any).__restoreBlinkClock());
+
+    for (const expression of ['thinking', 'stumped'] as const) {
+      await setOfflineGuideExpression(page, expression);
+      await expect.poll(async () => (await canvasHashes(page, LEFT_EYE)).iris).toBeGreaterThan(5);
+      await expect.poll(async () => (await canvasHashes(page, RIGHT_EYE)).iris).toBeGreaterThan(5);
+      const poseLowerFace = await canvasHashes(page, LOWER_FACE);
+      await page.locator('.bench-guide-card .frieren-guide').screenshot({
+        path: `runtime/character-${expression}-open.png`,
+      });
+      await forceBlinkClock(page);
+      await expect.poll(async () => (await canvasHashes(page, LEFT_EYE)).iris,
+        { timeout: 3000 }).toBe(0);
+      await expect.poll(async () => (await canvasHashes(page, RIGHT_EYE)).iris,
+        { timeout: 3000 }).toBe(0);
+      expect((await canvasHashes(page, LOWER_FACE)).hash,
+        `${expression} blink must leave the lower face unchanged`).toBe(poseLowerFace.hash);
+      await page.locator('.bench-guide-card .frieren-guide').screenshot({
+        path: `runtime/character-${expression}-blink.png`,
+      });
+      await page.evaluate(() => (window as any).__restoreBlinkClock());
+    }
 
     await page.getByRole('button', { name: 'Settings', exact: false }).first().click();
     const previews = page.locator('.guide-expression-preview figure');
