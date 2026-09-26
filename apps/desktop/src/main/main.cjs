@@ -239,8 +239,7 @@ app.whenReady().then(async () => {
     // A dead interface must not leave its investigator or bench process running.
     microphoneAllowed = false; cameraAllowed = false;
     piVideo.disconnect();
-    if (process.env.OHMPATH_HEADLESS !== '1') dialog.showErrorBox('Ohm Path window stopped',
-      'The interface closed unexpectedly. Restart Ohm Path to recover saved evidence; fresh setup checks will be required.');
+    console.error('Ohm Path interface stopped. Restart to recover saved evidence; fresh setup checks are required.');
     app.quit();
   });
   mainWindow.on('closed', () => { mainWindow = null; app.quit(); });
