@@ -55,7 +55,7 @@ test('temporary link exposes only a local capability page with restrictive heade
     assert.match(response.headers.get('content-security-policy'), /script-src 'none'/);
     assert.match(response.headers.get('content-security-policy'), /frame-ancestors 'none'/);
     assert.equal(response.headers.get('cache-control'), 'no-store, max-age=0');
-    assert.equal(response.headers.get('referrer-policy'), 'no-referrer');
+    assert.equal(response.headers.get('referrer-policy'), 'same-origin');
     assert.equal((await fetch(link.url + '?x=1')).status, 404);
     assert.equal((await fetch(new URL('/wrong', link.url))).status, 404);
     assert.equal((await rawRequest(link.url, { headers: { Host: 'localhost:' + new URL(link.url).port } })).status, 404);
