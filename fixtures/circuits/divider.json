@@ -1,0 +1,11 @@
+{
+  "circuit_id": "divider",
+  "revision": "r1",
+  "ground_nodes": ["GND"],
+  "components": [
+    {"ref": "V1", "kind": "dc_voltage_source", "nodes": ["SUPPLY", "GND"], "value_si": 3.3, "model_id": "ohmpath.dc_source.v1"},
+    {"ref": "R1", "kind": "resistor", "nodes": ["SUPPLY", "A"], "value_si": 10000.0, "model_id": "ohmpath.resistor.v1"},
+    {"ref": "R2", "kind": "resistor", "nodes": ["A", "B"], "value_si": 10000.0, "model_id": "ohmpath.resistor.v1"},
+    {"ref": "R3", "kind": "resistor", "nodes": ["B", "GND"], "value_si": 10000.0, "model_id": "ohmpath.resistor.v1"}
+  ]
+}

@@ -1,0 +1,345 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ohmpath.local/contracts/1.0.0",
+  "title": "Ohm Path shared contracts",
+  "$defs": {
+    "Revisions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "circuit_revision",
+        "firmware_revision",
+        "calibration_revision"
+      ],
+      "properties": {
+        "circuit_revision": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "firmware_revision": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "calibration_revision": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "EventEnvelope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "session_id",
+        "event_id",
+        "event_type",
+        "source",
+        "sequence",
+        "occurred_at",
+        "received_at",
+        "correlation_id",
+        "circuit_revision",
+        "firmware_revision",
+        "calibration_revision",
+        "payload",
+        "supersedes_event_id"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": "1.0.0"
+        },
+        "session_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "event_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "event_type": {
+          "type": "string",
+          "minLength": 1
+        },
+        "source": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sequence": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "occurred_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "received_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "correlation_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "circuit_revision": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "firmware_revision": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "calibration_revision": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "payload": {
+          "type": "object"
+        },
+        "supersedes_event_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "MeasurementRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "request_id",
+        "quantity",
+        "meter_mode",
+        "meter_range",
+        "black_node_id",
+        "red_node_id",
+        "target_ids",
+        "power_state",
+        "instrument_id",
+        "permitted_units",
+        "revisions",
+        "measurement_context_hash",
+        "expires_at",
+        "status"
+      ],
+      "properties": {
+        "request_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "quantity": {
+          "enum": [
+            "voltage",
+            "resistance",
+            "continuity"
+          ]
+        },
+        "meter_mode": {
+          "enum": [
+            "DC_voltage",
+            "AC_voltage",
+            "resistance",
+            "continuity"
+          ]
+        },
+        "meter_range": {
+          "type": "string",
+          "minLength": 1
+        },
+        "black_node_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "red_node_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "target_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "power_state": {
+          "enum": [
+            "off_verified",
+            "on_current_limited",
+            "unknown"
+          ]
+        },
+        "instrument_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "permitted_units": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "enum": [
+              "V",
+              "ohm"
+            ]
+          }
+        },
+        "revisions": {
+          "$ref": "#/$defs/Revisions"
+        },
+        "measurement_context_hash": {
+          "type": "string",
+          "minLength": 64,
+          "maxLength": 64
+        },
+        "expires_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "status": {
+          "enum": [
+            "active",
+            "cancelled",
+            "completed",
+            "expired"
+          ]
+        }
+      }
+    },
+    "MeasurementCandidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "candidate_id",
+        "request_id",
+        "original_text",
+        "value",
+        "si_unit",
+        "original_unit",
+        "original_number",
+        "display_state",
+        "source",
+        "ambiguities"
+      ],
+      "properties": {
+        "candidate_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "request_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "original_text": {
+          "type": "string",
+          "maxLength": 4096
+        },
+        "value": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "si_unit": {
+          "enum": [
+            "V",
+            "ohm",
+            "A",
+            null
+          ]
+        },
+        "original_unit": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "original_number": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "display_state": {
+          "enum": [
+            "numeric",
+            "over_limit",
+            "unstable",
+            "unknown"
+          ]
+        },
+        "source": {
+          "enum": [
+            "voice",
+            "ocr",
+            "typed",
+            "instrument"
+          ]
+        },
+        "ambiguities": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "Confirmation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "confirmation_id",
+        "candidate_id",
+        "request_id",
+        "measurement_context_hash",
+        "revisions",
+        "readback_text",
+        "readback_completed",
+        "expires_at"
+      ],
+      "properties": {
+        "confirmation_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "candidate_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "request_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "measurement_context_hash": {
+          "type": "string",
+          "minLength": 64,
+          "maxLength": 64
+        },
+        "revisions": {
+          "$ref": "#/$defs/Revisions"
+        },
+        "readback_text": {
+          "type": "string",
+          "minLength": 1
+        },
+        "readback_completed": {
+          "type": "boolean"
+        },
+        "expires_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    }
+  }
+}
