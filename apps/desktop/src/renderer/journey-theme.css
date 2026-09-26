@@ -251,6 +251,18 @@
   .journey-theme .journey-brand .brand-mark { width: 47px; height: 47px; flex-basis: 47px; }
   .journey-theme .main-shell { width: calc(100% - 62px); margin-left: 62px; }
   .journey-theme .journey-nav .nav-item { min-height: 50px; padding: 0; background-size: auto 100%; background-position: center; }
+  .journey-theme .journey-nav .nav-item > span:not(.nav-icon) {
+    display: block;
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
   .journey-theme .journey-nav .nav-item:nth-child(n) { margin-left: 0; }
   .journey-theme .journey-nav .nav-item.selected::after { inset: 4px; }
 }
