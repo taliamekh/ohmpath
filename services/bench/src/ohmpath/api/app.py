@@ -18,6 +18,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from ohmpath import __version__
 from ohmpath.ai.investigations import Investigations
+from ohmpath.ai.photo_help import PhotoHelp
 from ohmpath.circuits import load_fixture, run_operating_point
 from ohmpath.circuits.models import CircuitGraph
 from ohmpath.circuits.assembly import logical_assembly_guide
@@ -126,6 +127,23 @@ class TurnInput(Input):
     turn_id: str = Field(min_length=1, max_length=64)
 
 
+class PhotoImageInput(Input):
+    image_id: str = Field(min_length=36, max_length=36)
+    mime_type: Literal["image/png", "image/jpeg"]
+    image_base64: str = Field(min_length=1, max_length=2_700_000)
+
+
+class PhotoHelpInput(Input):
+    context_id: str = Field(min_length=36, max_length=36)
+    question: str = Field(min_length=1, max_length=4000)
+    images: list[PhotoImageInput] = Field(min_length=1, max_length=3)
+
+
+class PhotoCancelInput(Input):
+    context_id: str = Field(min_length=36, max_length=36)
+    turn_id: str | None = Field(default=None, min_length=36, max_length=36)
+
+
 class FirmwareInput(Input):
     log_text: str = Field(min_length=1, max_length=40000)
     board: str | None = Field(default=None, max_length=80)
@@ -168,6 +186,8 @@ def create_app(data_dir: Path, user_token: str, model_token: str | None = None) 
     measurements = Measurements(store)
     speech = WhisperWorker()
     investigations = Investigations(store, model_token)
+    photo_help = PhotoHelp()
+    investigation_admission = threading.RLock()
     simulation_slots = threading.BoundedSemaphore(2)
 
     def accepted_graph(state):
@@ -183,12 +203,14 @@ def create_app(data_dir: Path, user_token: str, model_token: str | None = None) 
     async def lifespan(app):
         yield
         investigations.close()
+        photo_help.close()
         speech.close()
         store.close()
 
     app = FastAPI(title="Ohm Path", version=__version__, lifespan=lifespan, docs_url=None, redoc_url=None)
     app.state.store = store
     app.state.investigations = investigations
+    app.state.photo_help = photo_help
 
     def role(authorization: str = Header(default="")):
         if authorization.startswith("Bearer "):
@@ -221,7 +243,7 @@ def create_app(data_dir: Path, user_token: str, model_token: str | None = None) 
         body = bytearray()
         async for chunk in request.stream():
             body.extend(chunk)
-            cap = 6_800_000 if request.url.path.endswith("/imports") else 2_800_000 if request.url.path.endswith(("/candidates/ocr", "/investigate/image")) else 2_100_000 if request.url.path.endswith("/voice/transcribe") else 65536
+            cap = 8_200_000 if request.url.path == "/v1/photo-help/investigate" else 6_800_000 if request.url.path.endswith("/imports") else 2_800_000 if request.url.path.endswith(("/candidates/ocr", "/investigate/image")) else 2_100_000 if request.url.path.endswith("/voice/transcribe") else 65536
             if len(body) > cap:
                 return JSONResponse(status_code=413, content={"error": "request_too_large"})
         request._body = bytes(body)
@@ -539,7 +561,10 @@ def create_app(data_dir: Path, user_token: str, model_token: str | None = None) 
 
     @app.post("/v1/sessions/{sid}/investigate", dependencies=[Depends(user_scope)])
     def investigate(sid: str, body: InvestigationInput):
-        return investigations.start(sid, body.question)
+        with investigation_admission:
+            if photo_help.busy():
+                raise DomainError("investigator_busy", "Wait for or cancel the current photo help.", 429)
+            return investigations.start(sid, body.question)
 
     @app.post("/v1/sessions/{sid}/investigate/image", dependencies=[Depends(user_scope)])
     def investigate_image(sid: str, body: ImageInvestigationInput):
@@ -547,7 +572,10 @@ def create_app(data_dir: Path, user_token: str, model_token: str | None = None) 
             raw = base64.b64decode(body.image_base64, validate=True)
         except binascii.Error:
             raise DomainError("investigation_image_invalid", "Choose a valid PNG or JPEG image.", 422) from None
-        return investigations.start(sid, body.question, image_bytes=raw)
+        with investigation_admission:
+            if photo_help.busy():
+                raise DomainError("investigator_busy", "Wait for or cancel the current photo help.", 429)
+            return investigations.start(sid, body.question, image_bytes=raw)
 
     @app.get("/v1/sessions/{sid}/investigate/{turn_id}", dependencies=[Depends(user_scope)])
     def investigation_status(sid: str, turn_id: str):
@@ -556,6 +584,23 @@ def create_app(data_dir: Path, user_token: str, model_token: str | None = None) 
     @app.post("/v1/sessions/{sid}/investigate/cancel", dependencies=[Depends(user_scope)])
     def investigation_cancel(sid: str, body: TurnInput):
         return investigations.cancel(sid, body.turn_id)
+
+    @app.post("/v1/photo-help/investigate", dependencies=[Depends(user_scope)])
+    def investigate_photos(body: PhotoHelpInput):
+        with investigation_admission:
+            with investigations.lock:
+                if any(job["worker"].is_alive() for job in investigations.jobs.values()):
+                    raise DomainError("investigator_busy", "Wait for or cancel the current investigation.", 429)
+            return photo_help.start(body.context_id, body.question,
+                                    [image.model_dump() for image in body.images])
+
+    @app.get("/v1/photo-help/{turn_id}", dependencies=[Depends(user_scope)])
+    def photo_help_status(turn_id: str):
+        return photo_help.status(turn_id)
+
+    @app.post("/v1/photo-help/cancel", dependencies=[Depends(user_scope)])
+    def photo_help_cancel(body: PhotoCancelInput):
+        return photo_help.cancel(body.context_id, body.turn_id)
 
     @app.get("/v1/sessions/{sid}/aim/status", dependencies=[Depends(user_scope)])
     def aim_status(sid: str):

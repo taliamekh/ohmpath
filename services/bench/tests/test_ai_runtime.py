@@ -366,3 +366,11 @@ def test_restricted_config_validation_denies_enabled_mcp_in_dynamic_mode():
     live_proof.check_configuration(config)
     with pytest.raises(ProofFailure, match="effective_config_not_restricted"):
         live_proof.check_configuration(config, bridge_mcp=False)
+
+
+@pytest.mark.parametrize("bad", [True, float("nan"), float("inf"), float("-inf"), -1, 101, "0"])
+def test_subscription_allowance_rejects_invalid_usage_values(bad):
+    limits = {"ordinaryUsageAllowed": True, "rateLimitsByLimitId": {"codex": {
+        "primary": {"usedPercent": bad}, "secondary": {"usedPercent": 20}}}}
+    with pytest.raises(ProofFailure, match="codex_allowance_unavailable"):
+        live_proof.remaining_percent(limits)
