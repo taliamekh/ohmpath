@@ -8,6 +8,7 @@ after an explicit coordinator allowance check; no reset or API fallback exists.
 from __future__ import annotations
 
 import json
+import math
 import os
 import queue
 import re
@@ -172,8 +173,9 @@ def remaining_percent(limits: dict[str, Any]) -> float:
     bucket = (limits.get("rateLimitsByLimitId") or {}).get("codex")
     if not isinstance(bucket, dict) or bucket.get("rateLimitReachedType"):
         raise ProofFailure("codex_allowance_unavailable")
-    used = [w["usedPercent"] for w in (bucket.get("primary"), bucket.get("secondary")) if isinstance(w, dict)]
-    if not used or any(not isinstance(x, (int, float)) or x < 0 or x > 100 for x in used):
+    used = [w.get("usedPercent") for w in (bucket.get("primary"), bucket.get("secondary")) if isinstance(w, dict)]
+    if not used or any(not isinstance(x, (int, float)) or isinstance(x, bool)
+                       or not math.isfinite(x) or x < 0 or x > 100 for x in used):
         raise ProofFailure("codex_allowance_unavailable")
     return 100 - max(used)
 
