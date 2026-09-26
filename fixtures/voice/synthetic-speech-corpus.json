@@ -1,0 +1,23 @@
+{
+  "description": "Synthetic SAPI phrases for local Whisper and measurement-routing verification; not microphone evidence.",
+  "voice": "Microsoft Zira Desktop",
+  "cases": [
+    {"id": "negative_millivolts", "phrase": "minus twelve point five millivolts", "meter_mode": "DC_voltage", "expected_route": "reading", "expected_value": "-0.0125"},
+    {"id": "decimal_volts", "phrase": "point two seven five volts", "meter_mode": "DC_voltage", "expected_route": "reading", "expected_value": "0.275"},
+    {"id": "two_point_two", "phrase": "two point two volts", "meter_mode": "DC_voltage", "expected_route": "reading", "expected_value": "2.2"},
+    {"id": "one_point_one", "phrase": "one point one volts", "meter_mode": "DC_voltage", "expected_route": "reading", "expected_value": "1.1"},
+    {"id": "three_point_three", "phrase": "three point three volts", "meter_mode": "DC_voltage", "expected_route": "reading", "expected_value": "3.3"},
+    {"id": "zero_volts", "phrase": "zero volts", "meter_mode": "DC_voltage", "expected_route": "reading", "expected_value": "0"},
+    {"id": "twelve_millivolts", "phrase": "twelve millivolts", "meter_mode": "DC_voltage", "expected_route": "reading", "expected_value": "0.012"},
+    {"id": "negative_decimal_volts", "phrase": "minus zero point two seven five volts", "meter_mode": "DC_voltage", "expected_route": "reading", "expected_value": "-0.275"},
+    {"id": "positive_half_volt", "phrase": "positive zero point five volts", "meter_mode": "DC_voltage", "expected_route": "reading", "expected_value": "0.5"},
+    {"id": "two_kiloohms", "phrase": "two kiloohms", "meter_mode": "resistance", "expected_route": "reading", "expected_value": "2000"},
+    {"id": "one_megohm", "phrase": "one megohm", "meter_mode": "resistance", "expected_route": "reading", "expected_value": "1000000"},
+    {"id": "over_limit_letters", "phrase": "O L", "meter_mode": "resistance", "expected_route": "reading", "expected_display_state": "over_limit"},
+    {"id": "over_limit_words", "phrase": "over limit", "meter_mode": "resistance", "expected_route": "reading", "expected_display_state": "over_limit"},
+    {"id": "why_low_node", "phrase": "Why is node B low?", "meter_mode": "DC_voltage", "expected_route": "question", "required_terms": ["node B"]},
+    {"id": "what_next", "phrase": "What should I measure next?", "meter_mode": "DC_voltage", "expected_route": "question"},
+    {"id": "yes_confirmation", "phrase": "yes", "meter_mode": "DC_voltage", "expected_route": "confirmation"},
+    {"id": "stop_command", "phrase": "stop", "meter_mode": "DC_voltage", "expected_route": "stop"}
+  ]
+}
