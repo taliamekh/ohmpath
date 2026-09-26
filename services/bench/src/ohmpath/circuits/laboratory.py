@@ -76,7 +76,7 @@ def _parse_data_rows(raw: bytes, *, columns: int, max_points: int) -> list[list[
         match = _NUMBER_ROW.fullmatch(line)
         if not match:
             raise ValueError("ngspice data contains a malformed numeric row")
-        row = [float(item) for item in match.groups()[:columns] if item is not None]
+        row = [float(item) for item in match.groups() if item is not None]
         if len(row) != columns or not all(math.isfinite(item) for item in row):
             raise ValueError("ngspice data has missing or non-finite values")
         if any(abs(item) > 1e15 for item in row):

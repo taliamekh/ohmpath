@@ -17,6 +17,7 @@ from .models import CircuitGraph, SimulationResult
 _DEFAULT_NGSPICE = Path(os.environ.get("LOCALAPPDATA", Path.home())) / "Programs/ngspice-47/Spice64/bin/ngspice_con.exe"
 _FIXTURE_ROOT = Path(__file__).resolve().parents[5] / "fixtures" / "circuits"
 _PRINT_LINE = re.compile(r"^\s*v\(([^)]+)\)\s*=\s*([-+0-9.eE]+)\s*$", re.MULTILINE | re.IGNORECASE)
+_FAILED_ANALYSIS = re.compile(r"singular matrix|timestep too small|failed to converge|no convergence|fatal error|fatal:", re.IGNORECASE)
 
 
 def _sha256(data: bytes) -> str:
@@ -85,7 +86,7 @@ def _parse_voltages(output: str, graph: CircuitGraph) -> dict[str, float]:
         if matched is not None:
             found[matched] = value
     requested = set(physical) - set(graph.ground_nodes)
-    if found.keys() < requested:
+    if not requested.issubset(found):
         missing = ", ".join(sorted(requested - found.keys()))
         raise ValueError(f"simulator output omitted requested node voltage(s): {missing}")
     return found
@@ -110,7 +111,7 @@ def run_operating_point(
     run_id = str(uuid.uuid4())
     if executable is None:
         return SimulationResult(
-            simulation_id=run_id, status="failed", provenance="ngspice_actual",
+            simulation_id=run_id, status="failed", provenance="none",
             graph_sha256=graph.graph_sha256, netlist_sha256=_sha256(netlist_bytes),
             simulator_sha256=None, simulator_version=None, node_voltages_v={},
             exit_code=None, duration_s=0.0, stdout="", stderr="",
@@ -123,6 +124,7 @@ def run_operating_point(
     status = "failed"
     error: str | None = None
     values: dict[str, float] = {}
+    process_started = False
     tmp_parent = str(work_root.resolve()) if work_root else None
     try:
         if work_root:
@@ -137,6 +139,7 @@ def run_operating_point(
                     stdout=stdout_file, stderr=stderr_file,
                     shell=False, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
                 )
+                process_started = True
                 deadline = start + timeout_s
                 while process.poll() is None:
                     if cancel_event is not None and cancel_event.is_set():
@@ -168,6 +171,8 @@ def run_operating_point(
                     status, error = "failed", "ngspice output exceeded the 100 KB limit"
                 elif exit_code == 0:
                     combined = stdout + "\n" + stderr
+                    if _FAILED_ANALYSIS.search(combined):
+                        raise ValueError("ngspice reported a convergence or fatal analysis error")
                     values = _parse_voltages(combined, graph)
                     status = "succeeded"
                 else:
@@ -177,7 +182,7 @@ def run_operating_point(
         status = "failed"
     duration = time.monotonic() - start
     return SimulationResult(
-        simulation_id=run_id, status=status, provenance="ngspice_actual",
+        simulation_id=run_id, status=status, provenance="ngspice_actual" if process_started else "none",
         graph_sha256=graph.graph_sha256, netlist_sha256=_sha256(netlist_bytes),
         simulator_sha256=simulator_hash, simulator_version=version,
         node_voltages_v=values if status == "succeeded" else {}, exit_code=exit_code,

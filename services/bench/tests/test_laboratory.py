@@ -75,6 +75,8 @@ def test_numeric_output_cap_and_malformed_rows_fail_closed() -> None:
         laboratory._parse_data_rows(b"x" * (laboratory.MAX_DATA_OUTPUT_BYTES + 1), columns=2, max_points=201)
     with pytest.raises(ValueError, match="malformed"):
         laboratory._parse_data_rows(b"0 1\nnot-a-number\n", columns=2, max_points=201)
+    with pytest.raises(ValueError, match="missing or non-finite"):
+        laboratory._parse_data_rows(b"0 1 2\n", columns=2, max_points=201)
 
 
 def test_simulator_convergence_error_never_returns_trace(
