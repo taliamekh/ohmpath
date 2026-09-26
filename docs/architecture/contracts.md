@@ -91,6 +91,8 @@ Each control request carries `command_id`, session/revisions, target or bounded 
 
 Bind authorization to a fresh connection epoch, current arming epoch, and canonical command-payload hash. Disconnection/restart invalidates the connection epoch; every disarm invalidates the arming epoch. Reuse of a command ID with a different payload is rejected, not treated as an authorized retry. Neither a resumed session nor an old queued command can restore a previous arm state.
 
+The mock command receiver enforces the configured minimum step interval even for very small moves. Wire retry identity binds the original TTL and excludes the locally reconstructed monotonic deadline; direct in-process commands without a wire TTL bind their explicit deadline. Reset positions reject Boolean/non-numeric inputs as well as non-finite or out-of-range angles. These software guards do not constitute physical driver validation.
+
 No blind retry after an unknown outcome. Reconcile device state, disarm, and require fresh user authorization where needed. A new session, stale heartbeat, calibration loss, target loss, unknown pose, movement, camera disconnect, or stop request disables emission. Independent normally-off hardware and physical stop remain mandatory; a network heartbeat alone is not sufficient.
 
 ## Error policy
@@ -114,6 +116,18 @@ All three routes require the local user capability; the model capability cannot 
 
 Renderer photo IPC passes main-process-owned opaque image IDs. `photoImportCapture` imports only a user-selected snapshot; its renderer timestamp is a freshness guard, not independent proof of physical camera state. Image selection/import does not initiate a model request. An explicit Ask sends the selected pixels and question.
 
+`photoChooseImage` accepts a local PNG/JPEG source of at most 16,000,000 bytes, 32 megapixels and 8192 pixels per side. Structural limits are checked before native decoding. EXIF orientation is applied once, metadata is removed, and a bounded resize/encoding pass produces the unchanged HTTP limits above. Prepared images have a maximum preferred side of 2400 pixels. The returned local preview may include `original_width`, `original_height` and `resized`; these are display metadata and are not transmitted as evidence. Original files are never overwritten.
+
+`photoPasteImage` reads only the current clipboard image after an explicit Paste image click. It never reads clipboard text/files or alters clipboard content. It validates native dimensions before copying pixels, resizes a copy to at most 2400 pixels per side and re-encodes bounded pixels without original metadata. It returns the same local preview shape and opaque ownership ID as file selection. Neither selection route calls the model until Ask.
+
+The standalone Photo help workspace retains images and completed replies in memory across navigation. Leaving cancels unfinished work and invalidates late imports; Clear workspace cancels the context, releases images and clears the question/history. Quitting or reloading discards the temporary workspace; it is not a persisted photo project. The camera review drawer has a separate temporary context and releases it when leaving Camera help.
+
+`piVideoStatus` is read-only desktop IPC returning `connected`, `state`, optional `reason`, `fresh_frame` and a constant source description. State is `disconnected`, `connecting`, `waiting`, `streaming`, `stalled` or `failed`. No token is returned. The client clears its latest frame on failure, refuses frames older than two seconds and fails after five seconds without a valid frame. The interface clears failed previews and requires an explicit reconnect; a prior frame cannot stand in for a current camera view.
+
 `turretStatus` / `setTurretEnabled` are local preference IPC, not actuator authorization. Their returned `connected`, `motion_enabled` and `laser_enabled` are false in this build. Enabling the preference does not bypass pairing, calibration, arming or physical acceptance prerequisites.
 
-Companion state adds optional presentation-only `expression`: `neutral`, `thinking`, `stumped`, or `happy`. It cannot change reasoning, evidence, measurement acceptance or safety. Mouth animation follows an actual playback activity callback; animation assets do not constitute voice verification.
+Companion state adds optional presentation-only `expression`: `neutral`, `thinking`, `stumped`, `happy`, `smug`, or `weary`. It cannot change reasoning, evidence, measurement acceptance or safety. Mouth animation follows an actual playback activity callback; animation assets do not constitute voice verification.
+
+Camera focus mode keeps the existing preview mounted. Snapshot review uses the same Photo help API and explicit Ask disclosure inside the workspace. Hiding the review drawer preserves its context; leaving the workspace cancels it. Subtitles render the actual explanation or current readback without invoking a speech provider. Readback has priority over decorative guide text. The subtitle preference is local presentation state and cannot acknowledge or confirm a measurement. Full explanations remain available in the camera subtitle pane; the separate desktop companion's IPC caption remains capped at 500 characters.
+
+Shared explanation wording may be calm, reserved and lightly humorous. This presentation instruction applies only to the explanation field. Structured observations, questions, proposed tests, exact quantities/units, safety text and evidence validation retain their independent rules.
