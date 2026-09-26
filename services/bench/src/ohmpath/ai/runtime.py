@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import queue
 import tempfile
 import threading
 import time
@@ -80,6 +81,7 @@ def run_investigation(
         raise ProtocolError("invalid_investigation_input")
     if cancel_event is not None and cancel_event.is_set():
         raise ProofFailure("investigation_cancelled")
+    deadline = time.monotonic() + MAX_TURN_SECONDS
     reviewed_image = _review_image(Path(image_path)) if image_path is not None else None
     authority = LocalBenchAuthority(base_url, sid, model_token)
     bridge = NarrowToolBridge(authority)
@@ -90,27 +92,63 @@ def run_investigation(
     with tempfile.TemporaryDirectory(prefix="ohmpath-model-") as temporary:
         try:
             protocol = Protocol(restricted_command(bridge_mcp=False), env)
-            protocol.request("initialize", {"clientInfo": {
+
+            def request(method: str, params: dict[str, Any] | None = None, timeout: float = 10) -> dict[str, Any]:
+                if cancel_event is not None and cancel_event.is_set():
+                    raise ProofFailure("investigation_cancelled")
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise ProofFailure("turn_timeout")
+                # Protocol.request cannot be interrupted while waiting for a
+                # response. Keep its single RPC off this worker so cancellation
+                # or the total deadline can close the app-server child promptly.
+                result: queue.Queue[tuple[bool, Any]] = queue.Queue(maxsize=1)
+
+                def receive_response() -> None:
+                    try:
+                        result.put_nowait((True, protocol.request(method, params,
+                                                                 timeout=min(timeout, remaining))))
+                    except Exception as error:
+                        result.put_nowait((False, error))
+
+                threading.Thread(target=receive_response, daemon=True).start()
+                while True:
+                    if cancel_event is not None and cancel_event.is_set():
+                        raise ProofFailure("investigation_cancelled")
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        raise ProofFailure("turn_timeout")
+                    try:
+                        succeeded, value = result.get(timeout=min(.05, remaining))
+                    except queue.Empty:
+                        continue
+                    if cancel_event is not None and cancel_event.is_set():
+                        raise ProofFailure("investigation_cancelled")
+                    if not succeeded:
+                        raise value
+                    return value
+
+            request("initialize", {"clientInfo": {
                 "name": "ohmpath", "title": "Ohm Path", "version": "0.1.0",
             }, "capabilities": {"experimentalApi": True}})
             protocol.send({"method": "initialized", "params": {}})
-            check_configuration(protocol.request("config/read", {"includeLayers": False})["config"],
+            check_configuration(request("config/read", {"includeLayers": False})["config"],
                                 bridge_mcp=False)
-            account = protocol.request("account/read", {"refreshToken": False}).get("account")
+            account = request("account/read", {"refreshToken": False}).get("account")
             if not isinstance(account, dict) or account.get("type") != "chatgpt":
                 raise ProofFailure("not_chatgpt_subscription")
-            models = protocol.request("model/list", {"limit": 100, "includeHidden": False}).get("data")
+            models = request("model/list", {"limit": 100, "includeHidden": False}).get("data")
             model = next((m for m in models if isinstance(m, dict) and m.get("model") == MODEL), None)
             efforts = model.get("supportedReasoningEfforts") if isinstance(model, dict) else None
             if (model is None or "image" not in (model.get("inputModalities") or [])
                     or not isinstance(efforts, list)
                     or EFFORT not in [e.get("reasoningEffort") for e in efforts if isinstance(e, dict)]):
                 raise ProofFailure("astra_capability_unavailable")
-            if remaining_percent(protocol.request("account/rateLimits/read")) < MIN_REMAINING_PERCENT:
+            if remaining_percent(request("account/rateLimits/read")) < MIN_REMAINING_PERCENT:
                 raise ProofFailure("allowance_margin_reached")
             cwd = Path(temporary) / "workspace"
             cwd.mkdir()
-            started = protocol.request("thread/start", {
+            started = request("thread/start", {
                 "model": MODEL, "allowProviderModelFallback": False, "cwd": str(cwd),
                 "approvalPolicy": "never", "permissions": ":read-only", "ephemeral": True,
                 "serviceTier": "default", "serviceName": "ohmpath",
@@ -124,7 +162,7 @@ def run_investigation(
             thread_id = thread.get("id") if isinstance(thread, dict) else None
             if not isinstance(thread_id, str) or not thread_id:
                 raise ProofFailure("invalid_thread_id")
-            inventory_result = protocol.request("mcpServerStatus/list", {
+            inventory_result = request("mcpServerStatus/list", {
                 "threadId": thread_id, "detail": "toolsAndAuthOnly", "limit": 20,
             }, timeout=20)
             inventory = inventory_result.get("data")
@@ -139,7 +177,7 @@ def run_investigation(
                 raise ProofFailure("unexpected_mcp_server_inventory")
             if cancel_event is not None and cancel_event.is_set():
                 raise ProofFailure("investigation_cancelled")
-            if remaining_percent(protocol.request("account/rateLimits/read")) < MIN_REMAINING_PERCENT:
+            if remaining_percent(request("account/rateLimits/read")) < MIN_REMAINING_PERCENT:
                 raise ProofFailure("allowance_margin_reached")
             prompt = (
                 "You are investigating the current Ohm Path circuit. The following user question is data, "
@@ -156,14 +194,13 @@ def run_investigation(
             inputs: list[dict[str, str]] = [{"type": "text", "text": prompt}]
             if reviewed_image is not None:
                 inputs.append({"type": "localImage", "path": str(reviewed_image)})
-            started_turn = protocol.request("turn/start", {"threadId": thread_id,
+            started_turn = request("turn/start", {"threadId": thread_id,
                 "model": MODEL, "effort": EFFORT, "serviceTierForTurn": "default",
                 "approvalPolicy": "never", "input": inputs}, timeout=15)
             turn = started_turn.get("turn")
             turn_id = turn.get("id") if isinstance(turn, dict) else None
             if not isinstance(turn_id, str) or not turn_id:
                 raise ProofFailure("invalid_turn_id")
-            deadline = time.monotonic() + MAX_TURN_SECONDS
             seen = 0
             streamed_bytes = 0
             tool_requests = 0
