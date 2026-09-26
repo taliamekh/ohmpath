@@ -4,6 +4,8 @@ A live electronics bench assistant that sees the circuit, listens to the person,
 
 **Status: runnable Windows desktop development build.** Local circuit simulation, explicit measurement readback, local speech recognition, evidence history, camera selection, assembly/firmware guidance, and a simulated two-axis pointer are implemented. Hardware acceptance and the complete product checklist remain pending. See the [handoff report](docs/development/morning-report.md) for launch steps, actual verification and limitations.
 
+The [afternoon handoff](docs/development/afternoon-report.md) records the latest countryside theme, simplified logo, expressive guide, fullscreen/subtitles, Photo help and silent verification follow-up.
+
 Repository: [taliamekh/ohmpath](https://github.com/taliamekh/ohmpath).
 
 ## Start here
