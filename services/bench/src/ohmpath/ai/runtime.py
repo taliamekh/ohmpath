@@ -17,6 +17,7 @@ from typing import Any
 from .bridge import LocalBenchAuthority, NarrowToolBridge, TOOLS, ToolDenied
 from .codex import EFFORT, MIN_REMAINING_PERCENT, MODEL, ProtocolError
 from .live_proof import Protocol, ProofFailure, check_configuration, remaining_percent, restricted_command
+from .presentation import EXPLANATION_PRESENTATION
 
 MAX_TURN_SECONDS = 90
 MAX_QUESTION_CHARS = 4000
@@ -148,6 +149,7 @@ def run_investigation(
                 "Run reviewed variant healthy with simulate_variant and use its actual simulation evidence "
                 "to call propose_test. Choose only graph node IDs. Never confirm a measurement or control hardware. "
                 "Return ONLY JSON with exactly circuit_revision, explanation, evidence_ids, proposed_test_id. "
+                f"{EXPLANATION_PRESENTATION}"
                 f"Use session_id={sid} and circuit_revision={circuit_revision} for every tool call. "
                 f"User question: {question}"
             )
