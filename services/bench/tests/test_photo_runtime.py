@@ -66,6 +66,9 @@ class FakeProtocol:
             prompt = params["input"][0]["text"]
             assert "divider" not in prompt and "simulate_variant" not in prompt
             assert "No bench circuit graph" in prompt
+            assert "Write only the user-facing explanation field" in prompt
+            assert "exact numbers and units" in prompt
+            assert "Do not roleplay" in prompt
             assert params["input"][2]["type"] == "localImage"
             return {"turn": {"id": "turn-1"}}
         if method == "turn/interrupt":

@@ -94,6 +94,10 @@ class FakeProtocol:
                               "resources": [], "resourceTemplates": []}]}
         if method == "turn/start":
             assert params["model"] == "gpt-6-astra" and params["effort"] == "medium"
+            prompt = params["input"][0]["text"]
+            assert "Write only the user-facing explanation field" in prompt
+            assert "exact numbers and units" in prompt
+            assert "Do not roleplay" in prompt
             return {"turn": {"id": "turn-1"}}
         raise AssertionError(method)
 
