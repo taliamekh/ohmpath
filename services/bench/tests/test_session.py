@@ -12,7 +12,7 @@ def bench(tmp_path):
     store = SessionStore(tmp_path / "test.sqlite3")
     session = store.create()
     engine = Measurements(store)
-    engine.setup(session["session_id"], "on_current_limited", {"load": "unchanged"})
+    engine.setup(session["session_id"], "on_current_limited", {"load": "unchanged", "low_voltage_confirmed": True})
     yield store, engine, session["session_id"]
     store.close()
 
@@ -48,7 +48,7 @@ def test_setup_change_invalidates_delayed_confirmation(bench):
     store, engine, sid = bench
     _, _, conf = reading(engine, sid)
     engine.readback(sid, conf["confirmation_id"])
-    engine.setup(sid, "on_current_limited", {"range": "changed"})
+    engine.setup(sid, "on_current_limited", {"range": "changed", "low_voltage_confirmed": True})
     with pytest.raises(DomainError):
         engine.confirm(sid, **confirmation_args(conf))
     assert not any(e["event_type"] == "measurement.confirmed" for e in store.events(sid))
@@ -67,7 +67,7 @@ def test_recovery_pauses_and_discards_pending_work(tmp_path):
     store = SessionStore(path)
     sid = store.create()["session_id"]
     engine = Measurements(store)
-    engine.setup(sid, "on_current_limited", {})
+    engine.setup(sid, "on_current_limited", {"low_voltage_confirmed": True})
     reading(engine, sid)
     store.close()
     restored = SessionStore(path)
@@ -89,6 +89,18 @@ def test_correction_preserves_old_event(bench):
     corrected = engine.confirm(sid, **confirmation_args(replacement), supersedes_event_id=original["event_id"])
     assert corrected["supersedes_event_id"] == original["event_id"]
     assert len([e for e in store.events(sid) if e["event_type"] == "measurement.confirmed"]) == 2
+    assert [e["event_id"] for e in store.current_measurements(sid, corrected["circuit_revision"])] == [corrected["event_id"]]
+
+
+def test_voltage_test_requires_declaration_and_supported_circuit(bench):
+    store, engine, sid = bench
+    engine.setup(sid, "on_current_limited", {})
+    with pytest.raises(DomainError, match="low-voltage"):
+        reading(engine, sid)
+    engine.setup(sid, "on_current_limited", {"low_voltage_confirmed": True})
+    store.transact(sid, lambda state, emit: state.update(nominal_source_voltage_v=24.0))
+    with pytest.raises(DomainError, match="12 V"):
+        reading(engine, sid)
 
 
 def test_ledger_schema_rejects_wrong_version_and_missing_units(bench):

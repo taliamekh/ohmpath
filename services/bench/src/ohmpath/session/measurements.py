@@ -48,6 +48,8 @@ class Measurements:
         def create(state, emit):
             if state["status"] != "active":
                 raise DomainError("session_paused", "Confirm the current setup before resuming.")
+            if state.get("nominal_source_voltage_v", 0) > 12:
+                raise DomainError("circuit_profile_unsupported", "This circuit exceeds the initial 12 V measurement profile. No physical test is available.")
             if quantity == "voltage" and meter_mode not in ("DC_voltage", "AC_voltage"):
                 raise DomainError("meter_mode_mismatch", "Voltage requires a voltage meter mode.")
             if quantity in ("resistance", "continuity"):
@@ -56,7 +58,7 @@ class Measurements:
                 checks = ("power_disconnected", "stored_energy_addressed", "residual_voltage_verified", "path_isolated")
                 if state["power_state"] != "off_verified" or not all(state["setup"].get(k) is True for k in checks):
                     raise DomainError("power_prerequisites_missing", "Resistance/continuity requires confirmed isolation checks.")
-            elif state["power_state"] != "on_current_limited":
+            elif state["power_state"] != "on_current_limited" or state["setup"].get("low_voltage_confirmed") is not True:
                 raise DomainError("power_prerequisites_missing", "Confirm the current-limited low-voltage setup first.")
             if not red_node_id or not black_node_id or red_node_id == black_node_id:
                 raise DomainError("probe_endpoints_invalid", "Choose two different, known probe endpoints.")
@@ -167,10 +169,22 @@ class Measurements:
                 except (InvalidOperation, TypeError):
                     raise DomainError("measurement_invalid", "The reading must be a finite signed decimal.") from None
             if supersedes_event_id:
+                import json
                 old = self.store.db.execute("SELECT body FROM events WHERE event_id=? AND session_id=?",
                                             (supersedes_event_id, sid)).fetchone()
-                if old is None or json_event_type(old[0]) != "measurement.confirmed":
+                previous = json.loads(old[0]) if old else None
+                if previous is None or previous["event_type"] != "measurement.confirmed":
                     raise DomainError("correction_target_invalid", "Choose an existing confirmed reading to correct.")
+                old_request = previous["payload"]["request"]
+                keys = ("quantity", "meter_mode", "red_node_id", "black_node_id", "measurement_context_hash")
+                if (previous["circuit_revision"] != state["revisions"]["circuit_revision"]
+                        or any(old_request[key] != req[key] for key in keys)):
+                    raise DomainError("correction_context_changed", "A correction must refer to the same circuit, probes, quantity and setup. Record a new reading for a different test.")
+                already_corrected = self.store.db.execute(
+                    "SELECT 1 FROM events WHERE session_id=? AND json_extract(body, '$.supersedes_event_id')=?",
+                    (sid, supersedes_event_id)).fetchone()
+                if already_corrected:
+                    raise DomainError("correction_target_obsolete", "Correct the latest replacement reading instead of an already corrected entry.")
             evidence_kind = "simulated_user_input" if state["mode"] == "mock" else "user_reported_physical_measurement"
             event = emit("measurement.confirmed", {"candidate": candidate, "request": req,
                          "evidence_kind": evidence_kind}, source="user", correlation_id=request_id,
@@ -182,8 +196,3 @@ class Measurements:
                 emit("safety.review_required", {"reason": "Reading exceeds the initial 12 V profile."})
             return event
         return self.store.transact(sid, accept)
-
-
-def json_event_type(value):
-    import json
-    return json.loads(value)["event_type"]
