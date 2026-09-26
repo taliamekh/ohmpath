@@ -65,3 +65,11 @@ Latest automated results are recorded above. No physical verification has occurr
 ## Known blockers
 
 Hardware identity/safety assembly, actual MCU, voice budget/credentials and approved character assets require the user or physical inspection. These do not block local software and simulated interfaces.
+
+## Post-checkpoint: silent ElevenLabs account linking
+
+September 26, 13:53 Toronto: the user requested linking the Chrome ElevenLabs account and explicitly prohibited any voice test, preview or speech generation to conserve credits. Implemented encrypted local credential storage, three bounded read-only provider metadata requests, a Settings connection/voice-choice panel, and a temporary private browser handoff page. The adapter has no synthesis endpoint or enable-generation action. The API key never reaches the bench/model processes or repository. Photo-help replacement, turret preference and reference-based Frieren artwork are separate outstanding requests and were not silently represented as completed by this linking change.
+
+Verification: TypeScript/production build passed. All 14 desktop unit tests passed, including ten new connection and local HTTP boundary tests; the desktop Settings check passed in 10.5 seconds with an intentionally invalid short key rejected before network access. These are connection/security checks only, not voice tests. No audio was generated or played, no provider generation/preview was called, and no paid account action occurred.
+
+Account key form prepared in Chrome: **Ohm Path voice**, restricted Text to Speech/User/Models/Voices-read permissions, 1,000 credits per refresh period, no extra generation or administration permissions. Browser automation requires action-time confirmation before creating a persistent credential; that confirmation was requested and is pending at this checkpoint. No key has been created or linked yet. The local handoff page is open and expires after 15 idle minutes. See `elevenlabs-connection.md` for the durable setup and boundaries. The earlier banked reset record is unchanged; no additional redemption is authorized.

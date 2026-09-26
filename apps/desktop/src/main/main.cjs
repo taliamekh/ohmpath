@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, session, dialog, screen, nativeImage } = require('electron');
+const { app, BrowserWindow, ipcMain, session, dialog, screen, nativeImage, safeStorage } = require('electron');
 const { spawn } = require('node:child_process');
 const { randomBytes } = require('node:crypto');
 const { join, resolve } = require('node:path');
@@ -6,6 +6,7 @@ const { createInterface } = require('node:readline');
 const fs = require('node:fs');
 const { PiVideoClient } = require('./pi-video.cjs');
 const { prepareReviewedImage } = require('./reviewed-image.cjs');
+const { createElevenLabsConnection } = require('./elevenlabs.cjs');
 const piVideo = new PiVideoClient();
 
 const root = resolve(__dirname, '../../../..');
@@ -21,6 +22,7 @@ let userToken;
 let stopping = false;
 let microphoneAllowed = false;
 let cameraAllowed = false;
+let elevenLabs;
 app.on('second-instance', () => {
   if (mainWindow && !mainWindow.isDestroyed() && process.env.OHMPATH_HEADLESS !== '1') {
     if (mainWindow.isMinimized()) mainWindow.restore();
@@ -122,6 +124,14 @@ ipcMain.handle('ohmpath:companion-hide', event => {
 ipcMain.handle('ohmpath:request', async (event, action, payload) => {
   if (!trustedSender(event) || typeof action !== 'string' || payload === null || typeof payload !== 'object'
       || JSON.stringify(payload).length > (action === 'transcribe' ? 2100000 : 60000)) throw new Error('Invalid application message.');
+  const voiceConnectionActions = {
+    elevenLabsStatus: 'status', elevenLabsConnect: 'connect', elevenLabsRefresh: 'refresh',
+    elevenLabsSelectVoice: 'selectVoice', elevenLabsDisconnect: 'disconnect',
+  };
+  if (Object.hasOwn(voiceConnectionActions, action)) {
+    if (!elevenLabs) throw new Error('The private voice connection is not ready.');
+    return elevenLabs.handle(voiceConnectionActions[action], payload);
+  }
   if (action === 'openCompanion') return openCompanion();
   if (action === 'closeCompanion') { if (companionWindow && !companionWindow.isDestroyed()) companionWindow.close(); return { enabled: false }; }
   if (action === 'updateCompanion') {
@@ -223,6 +233,7 @@ ipcMain.handle('ohmpath:request', async (event, action, payload) => {
 
 app.whenReady().then(async () => {
   if (!ownsProfile) return;
+  elevenLabs = createElevenLabsConnection({ safeStorage, filePath: join(app.getPath('userData'), 'private', 'elevenlabs.enc') });
   session.defaultSession.setPermissionCheckHandler((contents, permission, _origin, details) => {
     const expected = require('node:url').pathToFileURL(join(root, 'dist/desktop/index.html')).href;
     const url = contents?.getURL() || '';

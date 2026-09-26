@@ -52,7 +52,7 @@ Create a practice bench, choose a fixture, and run the local solve. Review the d
 
 Run `.venv/Scripts/python.exe scripts/verify.py` for generated-contract checks, lint, Python tests, the desktop build, bridge tests and an automated Electron walkthrough. It uses a synthetic camera and performs no physical test. `scripts/verify.ps1` is also available where local PowerShell policy permits. See the [Pi source deployment bundle](docs/development/pi-deployment.md) and [controller commands](docs/development/pi-controller-handoff.md) for the separately packaged Pi service. No Pi installation, SSH connection, flashing or motor operation has been performed.
 
-The subscription investigator requires the existing signed-in Codex CLI version recorded in [the adapter handoff](docs/development/codex-adapter-handoff.md), access to the configured Astra model, and sufficient subscription allowance. It starts only on request, checks that access, and fails closed. It does not switch to API-key billing. Local speech output is an explicit system-voice preview; ElevenLabs and approved character assets still need configuration and review.
+The subscription investigator requires the existing signed-in Codex CLI version recorded in [the adapter handoff](docs/development/codex-adapter-handoff.md), access to the configured Astra model, and sufficient subscription allowance. It starts only on request, checks that access, and fails closed. It does not switch to API-key billing. Local speech output is an explicit system-voice preview. Settings can [link an ElevenLabs account without generating speech](docs/development/elevenlabs-connection.md); ElevenLabs playback and approved character assets still need integration and review.
 
 ## Available tools in the interface
 

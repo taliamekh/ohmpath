@@ -461,6 +461,14 @@ button:disabled { opacity: .48; cursor: not-allowed; }
 .registry-entry small { display: block; margin-top: 4px; color: #778d96; font-size: 8px; }
 .registry-avatar { display: grid; place-items: center; flex: 0 0 29px; width: 29px; height: 29px; border-radius: 7px; color: #86bdb4; background: #1a3037; font: 9px var(--mono); }
 .registry-avatar.pending { color: #c6aa73; background: #302a20; }
+.elevenlabs-panel { grid-column: 1 / -1; }
+.elevenlabs-panel p, .elevenlabs-panel small { color: var(--text-muted, #a4b4ba); line-height: 1.5; }
+.elevenlabs-link-form, .elevenlabs-linked { display: flex; flex-direction: column; gap: 12px; max-width: 660px; margin-top: 18px; }
+.elevenlabs-link-form label, .elevenlabs-linked label { font: 10px var(--mono); letter-spacing: .08em; }
+.elevenlabs-link-form input, .elevenlabs-linked select { min-height: 42px; border: 1px solid #29414a; border-radius: 8px; background: #0d1b22; color: #e9f2f4; padding: 10px 12px; }
+.elevenlabs-link-form button { align-self: flex-start; }
+.elevenlabs-actions { display: flex; flex-wrap: wrap; gap: 12px; }
+.elevenlabs-credit-note { border-left: 3px solid #8fb8b0; padding: 8px 12px; background: #11252b; }
 .registry-status, .runtime-state { white-space: nowrap; color: #72888e; font: 7px var(--mono); letter-spacing: .4px; }
 .registry-status.pending, .runtime-state.paused { color: #d6b471; }
 .runtime-state.safe { color: #8ad2bb; }

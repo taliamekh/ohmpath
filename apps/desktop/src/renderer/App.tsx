@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import DevicesPage from "./DevicesPage";
 import TroubleshootPage from "./TroubleshootPage";
 import CircuitLabPage from "./CircuitLabPage";
+import ElevenLabsSettings from "./ElevenLabsSettings";
 
 type AnyRecord = Record<string, any>;
 type Tab = "bench" | "troubleshoot" | "laboratory" | "devices" | "settings";
@@ -1039,6 +1040,7 @@ function SettingsPage({ reducedMotion, onReducedMotion, showGuide, onShowGuide, 
   return <div className="settings-page">
     <div className="page-heading settings-heading"><div><div className="eyebrow">PREFERENCES & REGISTRY</div><h1>Settings</h1><p>Local display preferences and the guide slots planned for Ohm Path.</p></div></div>
     <div className="settings-grid">
+      <ElevenLabsSettings />
       <section className="panel settings-panel"><PanelHeader kicker="ACCESSIBILITY" title="Display preferences" />
         <label className="preference-row"><span><strong>Reduce motion</strong><small>Stop decorative animation across the guide and interface.</small></span><input type="checkbox" checked={reducedMotion} onChange={(event) => onReducedMotion(event.target.checked)} /></label>
         <label className="preference-row"><span><strong>Show guide companion</strong><small>Keep the small guide panel visible above the work area.</small></span><input type="checkbox" checked={showGuide} onChange={(event) => onShowGuide(event.target.checked)} /></label>
@@ -1055,7 +1057,7 @@ function SettingsPage({ reducedMotion, onReducedMotion, showGuide, onShowGuide, 
       <section className="panel settings-panel runtime-panel"><PanelHeader kicker="RUNTIME BOUNDARIES" title="Connected services" />
         <div className="runtime-row"><span><strong>Reasoning</strong><small>{reasoningStatus === "subscription_on_request" ? "Subscription route; account and allowance checks run before each request." : "Preflight status is not currently available."}</small></span><span className={`runtime-state ${reasoningStatus === "subscription_on_request" ? "safe" : "paused"}`}>{reasoningStatus === "subscription_on_request" ? "ON REQUEST" : "UNAVAILABLE"}</span></div>
         <div className="runtime-row"><span><strong>Local speech recognition</strong><small>whisper.cpp · {voiceStatus?.model ?? "small.en"} · microphone is user-controlled and currently off.</small></span><span className={`runtime-state ${["ready", "installed"].includes(voiceStatus?.status) ? "safe" : "paused"}`}>{voiceStatus?.status?.toUpperCase() ?? "CHECKING"}</span></div>
-        <div className="runtime-row"><span><strong>ElevenLabs voice</strong><small>Provider, voice, and budget authorization are pending.</small></span><span className="runtime-state">NOT CONNECTED</span></div>
+        <div className="runtime-row"><span><strong>ElevenLabs voice</strong><small>Account linking is above. Speech generation remains disabled during setup.</small></span><span className="runtime-state">SPEECH OFF</span></div>
         <div className="runtime-row"><span><strong>Paid fallback</strong><small>Automatic paid or model downgrade is not enabled.</small></span><span className="runtime-state safe">OFF</span></div>
         <div className="runtime-row"><span><strong>Physical output</strong><small>Laser and motion remain disabled.</small></span><span className="runtime-state paused">LOCKED</span></div>
       </section>
