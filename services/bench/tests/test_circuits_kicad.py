@@ -108,3 +108,41 @@ def test_export_rejects_hierarchy_and_alternate_executable(tmp_path: Path) -> No
         export_kicad_xml(candidate, source_root=source)
     with pytest.raises(ValueError, match="pinned KiCad"):
         export_kicad_xml(FIXTURE, source_root=FIXTURE.parent, kicad_cli_path=tmp_path / "kicad-cli.exe")
+
+
+def test_export_stops_cli_when_xml_exceeds_size_limit(tmp_path: Path, monkeypatch) -> None:
+    import ohmpath.circuits.kicad as kicad
+
+    executable = tmp_path / "kicad-cli.exe"
+    executable.write_bytes(b"test executable")
+    monkeypatch.setattr(kicad, "_DEFAULT_KICAD_CLI", executable)
+
+    class OversizedExport:
+        returncode = None
+
+        def __init__(self, args, **_kwargs):
+            output = Path(args[args.index("--output") + 1])
+            output.write_bytes(b"x" * 5_000_001)
+            self.killed = False
+
+        def poll(self):
+            return None
+
+        def kill(self):
+            self.killed = True
+            self.returncode = -9
+
+        def wait(self):
+            return self.returncode
+
+    processes = []
+
+    def start_process(*args, **kwargs):
+        process = OversizedExport(*args, **kwargs)
+        processes.append(process)
+        return process
+
+    monkeypatch.setattr(kicad.subprocess, "Popen", start_process)
+    with pytest.raises(ValueError, match="exceeded the 5 MB import limit"):
+        export_kicad_xml(FIXTURE, source_root=FIXTURE.parent)
+    assert len(processes) == 1 and processes[0].killed
