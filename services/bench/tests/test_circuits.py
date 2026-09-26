@@ -115,3 +115,33 @@ def test_cancelled_request_does_not_return_successful_values() -> None:
     result = run_operating_point(load_fixture("divider"), simulator_path=NGSPICE, cancel_event=event)
     assert result.status == "cancelled"
     assert result.node_voltages_v == {}
+
+
+def test_missing_simulator_is_not_marked_as_actual_execution(tmp_path):
+    result = run_operating_point(load_fixture("divider"), simulator_path=tmp_path / "missing.exe")
+    assert result.status == "failed" and result.provenance == "none"
+    assert result.node_voltages_v == {} and result.exit_code is None
+
+
+def test_ground_output_does_not_mask_missing_node_voltage():
+    from ohmpath.circuits.simulation import _parse_voltages
+    with pytest.raises(ValueError, match="omitted requested"):
+        _parse_voltages("v(n1) = 2.2\nv(n2) = 1.1\nv(0) = 0\n", load_fixture("divider"))
+
+
+def test_fatal_solver_output_cannot_produce_success_even_with_exit_zero(tmp_path, monkeypatch):
+    import ohmpath.circuits.simulation as simulation
+    executable = tmp_path / "mock-solver"
+    executable.write_bytes(b"mock test executable identity")
+    monkeypatch.setattr(simulation, "_resolve_simulator", lambda _: executable)
+    monkeypatch.setattr(simulation, "_version", lambda _: "mock test version")
+    class FatalSimulator:
+        returncode = 0
+        def __init__(self, _args, **kwargs):
+            kwargs["stdout"].write(b"Fatal error: failed to converge\nv(n1) = 2.2\nv(n2) = 1.1\nv(n3) = 3.3\n")
+        def poll(self):
+            return self.returncode
+    monkeypatch.setattr(simulation.subprocess, "Popen", FatalSimulator)
+    result = simulation.run_operating_point(load_fixture("divider"), work_root=tmp_path / "runs")
+    assert result.status == "failed" and result.node_voltages_v == {}
+    assert "convergence" in result.error

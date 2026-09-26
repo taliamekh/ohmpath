@@ -50,8 +50,8 @@ class CircuitGraph(BaseModel):
 
     circuit_id: str = Field(min_length=1, max_length=64)
     revision: str = Field(min_length=1, max_length=64)
-    ground_nodes: tuple[str, ...] = Field(min_length=1)
-    components: tuple[CircuitComponent, ...] = Field(min_length=1)
+    ground_nodes: tuple[str, ...] = Field(min_length=1, max_length=16)
+    components: tuple[CircuitComponent, ...] = Field(min_length=1, max_length=128)
 
     @model_validator(mode="after")
     def validate_graph(self) -> "CircuitGraph":
@@ -82,7 +82,7 @@ class SimulationResult(BaseModel):
 
     simulation_id: str
     status: Literal["succeeded", "failed", "cancelled", "timed_out"]
-    provenance: Literal["ngspice_actual"]
+    provenance: Literal["ngspice_actual", "none"]
     graph_sha256: str
     netlist_sha256: str
     simulator_sha256: str | None
