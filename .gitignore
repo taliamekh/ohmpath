@@ -1,0 +1,47 @@
+# Historical workspace material: preserve locally, curate before publishing.
+/outputs/
+/result.json
+/.analysis-venv/
+
+# Dependencies and generated builds.
+node_modules/
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+dist/
+build/
+coverage/
+htmlcov/
+.coverage
+*.egg-info/
+
+# Credentials and machine-specific configuration.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+/config/local/
+/.codex/
+
+# Private runtime evidence: not source-controlled by default.
+/runtime/
+/recordings/
+/sessions/
+/models/
+*.sqlite
+*.sqlite3
+*.sqlite-wal
+*.sqlite-shm
+*.sqlite3-wal
+*.sqlite3-shm
+*.log
+
+# Editor and operating-system files.
+.DS_Store
+Thumbs.db
+.idea/
