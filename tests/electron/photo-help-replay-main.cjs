@@ -8,10 +8,15 @@ const root = resolve(__dirname, '../..');
 const imageIds = [
   '10000000-0000-4000-8000-000000000001',
   '10000000-0000-4000-8000-000000000002',
+  '10000000-0000-4000-8000-000000000003',
 ];
-const audit = { asks: [], cancels: [], releases: [], choices: 0, statusChecks: 0, unexpected: [] };
+const audit = { asks: [], cancels: [], releases: [], captures: [], choices: 0, statusChecks: 0, unexpected: [] };
+const piReplay = { connected: false, jpeg_base64: '', reason: '', connects: 0, disconnects: 0, frameCalls: 0, lastPort: null,
+  failConnectOnce: false, failFrameOnce: false, failStatusOnce: false, frameMissingOnce: false };
 const jobs = new Map();
 let resolveLateAsk;
+let delayNextCapture = false;
+let resolveLateCapture;
 let window;
 
 function crc32(bytes) {
@@ -68,8 +73,56 @@ function handle(action, payload = {}) {
   if (action === 'health') return { service: 'Ohm Path replay', hardware: 'disabled', reasoning: 'subscription_on_request' };
   if (action === 'sessions') return [];
   if (action === 'voiceStatus') return { provider: 'offline replay', status: 'not_installed', local_only: true, recording: false };
+  if (action === 'enableCamera') return { allowed: true };
   if (action === 'disableCamera') return { allowed: false };
-  if (action === 'piVideoDisconnect') return { connected: false };
+  if (action === 'piVideoConnect') {
+    if (!Number.isInteger(payload.port) || payload.port < 1024 || payload.port > 65535 || typeof payload.token !== 'string' || !payload.token) throw new Error('Invalid replay Pi connection.');
+    if (piReplay.failConnectOnce) { piReplay.failConnectOnce = false; throw new Error('Replay Pi connection failed. Check the local tunnel and token.'); }
+    piReplay.connected = true;
+    piReplay.reason = '';
+    piReplay.connects += 1;
+    piReplay.lastPort = payload.port;
+    return { connected: true, source: 'Raspberry Pi camera via an existing local tunnel' };
+  }
+  if (action === 'piVideoFrame') {
+    piReplay.frameCalls += 1;
+    if (piReplay.failFrameOnce) { piReplay.failFrameOnce = false; throw new Error('Replay Pi frame request failed. Check the local tunnel and reconnect.'); }
+    if (piReplay.frameMissingOnce) { piReplay.frameMissingOnce = false; return null; }
+    return piReplay.connected && piReplay.jpeg_base64 ? { jpeg_base64: piReplay.jpeg_base64, received_at: Date.now() } : null;
+  }
+  if (action === 'piVideoStatus') {
+    if (piReplay.failStatusOnce) { piReplay.failStatusOnce = false; throw new Error('Replay Pi status request failed. Check the local tunnel and reconnect.'); }
+    return { connected: piReplay.connected, state: piReplay.connected ? 'streaming' : 'disconnected', reason: piReplay.reason, fresh_frame: piReplay.connected && Boolean(piReplay.jpeg_base64), source: 'Raspberry Pi camera via an existing local tunnel' };
+  }
+  if (action === 'piVideoDisconnect') { piReplay.connected = false; piReplay.disconnects += 1; return { connected: false }; }
+  if (action === 'testPiReplaySetFrame') {
+    if (typeof payload.jpeg_base64 !== 'string' || !/^[A-Za-z0-9+/]+={0,2}$/.test(payload.jpeg_base64) || payload.jpeg_base64.length > 1000000) throw new Error('Invalid replay Pi frame.');
+    piReplay.jpeg_base64 = payload.jpeg_base64;
+    return { configured: true };
+  }
+  if (action === 'testPiReplayDrop') {
+    if (!piReplay.connected) throw new Error('Replay Pi camera is not connected.');
+    piReplay.connected = false;
+    piReplay.reason = 'Replay Pi stream stopped. Check the local tunnel and reconnect.';
+    return { connected: false };
+  }
+  if (action === 'testPiReplayFailNextConnect') { piReplay.failConnectOnce = true; return { armed: true }; }
+  if (action === 'testPiReplayFailNextFrame') { piReplay.failFrameOnce = true; return { armed: true }; }
+  if (action === 'testPiReplayFailNextStatus') { piReplay.frameMissingOnce = true; piReplay.failStatusOnce = true; return { armed: true }; }
+  if (action === 'testPiReplayAudit') return { connected: piReplay.connected, connects: piReplay.connects, disconnects: piReplay.disconnects, frameCalls: piReplay.frameCalls, lastPort: piReplay.lastPort };
+  if (action === 'photoImportCapture') {
+    if (payload.source !== 'overview' || !Number.isFinite(payload.captured_at)
+        || Math.abs(Date.now() - payload.captured_at) > 10000
+        || typeof payload.data_url !== 'string' || payload.data_url.length > 2700000
+        || !/^data:image\/jpeg;base64,[A-Za-z0-9+/]+={0,2}$/.test(payload.data_url)) throw new Error('Invalid replay camera snapshot.');
+    audit.captures.push({ source: payload.source, captured_at: payload.captured_at, length: payload.data_url.length });
+    const result = { image: { image_id: imageIds[2], name: 'Overview snapshot', data_url: payload.data_url, width: 640, height: 360 } };
+    if (delayNextCapture) {
+      delayNextCapture = false;
+      return new Promise(resolve => { resolveLateCapture = () => { resolveLateCapture = undefined; resolve(result); }; });
+    }
+    return result;
+  }
   if (action === 'photoChooseImage') {
     const index = audit.choices++;
     if (index > 1) return { cancelled: true };
@@ -111,7 +164,17 @@ function handle(action, payload = {}) {
     audit.cancels.push({ context_id: payload.context_id, turn_id: payload.turn_id ?? null });
     return { status: 'cancelled', context_id: payload.context_id };
   }
-  if (action === 'testAudit') return { ...audit, latePending: Boolean(resolveLateAsk), modelCalls: 0 };
+  if (action === 'testAudit') return { ...audit, latePending: Boolean(resolveLateAsk), lateCapturePending: Boolean(resolveLateCapture), modelCalls: 0 };
+  if (action === 'testDelayNextCapture') {
+    if (delayNextCapture || resolveLateCapture) throw new Error('A replay capture is already delayed.');
+    delayNextCapture = true;
+    return { armed: true };
+  }
+  if (action === 'testResolveLateCapture') {
+    if (!resolveLateCapture) throw new Error('No delayed replay capture.');
+    resolveLateCapture();
+    return { released: true };
+  }
   if (action === 'testResolveLateAsk') {
     if (!resolveLateAsk) throw new Error('No delayed replay request.');
     resolveLateAsk();

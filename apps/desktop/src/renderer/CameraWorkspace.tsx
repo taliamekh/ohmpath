@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import "./camera-workspace.css";
 
 export type CameraCapture = {
@@ -11,6 +11,13 @@ type Props = {
   paused: boolean;
   onSnapshot: (capture: CameraCapture) => Promise<void> | void;
   onActivity?: (caption: string) => void;
+  guide?: ReactNode;
+  helpPanel?: ReactNode;
+  caption?: string;
+  subtitlesEnabled?: boolean;
+  onSubtitlesChange?: (enabled: boolean) => void;
+  onFocusChange?: (focused: boolean) => void;
+  onPause?: () => void;
 };
 type CameraDevice = { deviceId: string; label: string };
 type PiFrame = { url: string; receivedAt: number };
@@ -68,7 +75,7 @@ async function decodeJpeg(url: string): Promise<HTMLImageElement> {
   return image;
 }
 
-export default function CameraWorkspace({ paused, onSnapshot, onActivity }: Props) {
+export default function CameraWorkspace({ paused, onSnapshot, onActivity, guide, helpPanel, caption, subtitlesEnabled, onSubtitlesChange, onFocusChange, onPause }: Props) {
   const [devices, setDevices] = useState<CameraDevice[]>([]);
   const [selectedDevice, setSelectedDevice] = useState("");
   const [overviewEnabled, setOverviewEnabled] = useState(false);
@@ -85,6 +92,19 @@ export default function CameraWorkspace({ paused, onSnapshot, onActivity }: Prop
   const [snapshotBusy, setSnapshotBusy] = useState(false);
   const [snapshotError, setSnapshotError] = useState("");
   const [clock, setClock] = useState(Date.now());
+  const [focused, setFocused] = useState(false);
+  const [localSubtitlesEnabled, setLocalSubtitlesEnabled] = useState(true);
+  const workspaceRef = useRef<HTMLElement | null>(null);
+  const focusButtonRef = useRef<HTMLButtonElement | null>(null);
+  const focusedRef = useRef(false);
+  const fallbackFocusRef = useRef(false);
+  const nativeFocusActiveRef = useRef(false);
+  const focusRequestGeneration = useRef(0);
+  const focusPendingRef = useRef(false);
+  const inertSiblings = useRef<{ element: HTMLElement; previous: boolean }[]>([]);
+  const previousBodyOverflow = useRef("");
+  const onFocusChangeRef = useRef(onFocusChange);
+  onFocusChangeRef.current = onFocusChange;
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const mountedRef = useRef(true);
@@ -98,6 +118,123 @@ export default function CameraWorkspace({ paused, onSnapshot, onActivity }: Prop
   const videoFrameRequest = useRef<number | null>(null);
   const videoTimeUpdate = useRef<(() => void) | null>(null);
   pausedRef.current = paused;
+
+  function updateFocus(value: boolean) {
+    if (focusedRef.current === value) return;
+    focusedRef.current = value;
+    setFocused(value);
+    onFocusChangeRef.current?.(value);
+    if (!value) window.requestAnimationFrame(() => { if (focusButtonRef.current?.isConnected) focusButtonRef.current.focus(); });
+  }
+
+  function setOutsideInert(workspace: HTMLElement) {
+    let child: HTMLElement | null = workspace;
+    while (child && child !== document.body) {
+      const parent: HTMLElement | null = child.parentElement;
+      if (!parent) break;
+      for (const sibling of Array.from(parent.children)) {
+        if (sibling !== child && sibling instanceof HTMLElement) {
+          inertSiblings.current.push({ element: sibling, previous: sibling.inert });
+          sibling.inert = true;
+        }
+      }
+      child = parent;
+    }
+  }
+
+  function restoreOutsideInert() {
+    for (const item of inertSiblings.current) item.element.inert = item.previous;
+    inertSiblings.current = [];
+  }
+
+  function leaveFallbackFocus() {
+    if (!fallbackFocusRef.current) return;
+    fallbackFocusRef.current = false;
+    document.body.style.overflow = previousBodyOverflow.current;
+    restoreOutsideInert();
+    updateFocus(false);
+  }
+
+  async function enterFocus() {
+    const workspace = workspaceRef.current;
+    if (!workspace || focusedRef.current || focusPendingRef.current) return;
+    focusPendingRef.current = true;
+    const generation = ++focusRequestGeneration.current;
+    let timeout: number | undefined;
+    try {
+      if (!workspace.requestFullscreen) throw new Error("Fullscreen is unavailable.");
+      const nativeRequest = workspace.requestFullscreen();
+      void nativeRequest.then(() => {
+        if (focusRequestGeneration.current !== generation && document.fullscreenElement === workspace) void document.exitFullscreen().catch(() => undefined);
+      }).catch(() => undefined);
+      await Promise.race([
+        nativeRequest,
+        new Promise<void>((_, reject) => { timeout = window.setTimeout(() => reject(new Error("Fullscreen did not start.")), 900); }),
+      ]);
+      if (focusRequestGeneration.current !== generation) return;
+      if (document.fullscreenElement === workspace) {
+        updateFocus(true);
+        return;
+      }
+    } catch { /* The same element can still provide an in-app focus view. */ }
+    finally { focusPendingRef.current = false; if (timeout !== undefined) window.clearTimeout(timeout); }
+    if (focusRequestGeneration.current !== generation) return;
+    previousBodyOverflow.current = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    fallbackFocusRef.current = true;
+    setOutsideInert(workspace);
+    updateFocus(true);
+  }
+
+  async function exitFocus() {
+    focusRequestGeneration.current += 1;
+    if (fallbackFocusRef.current) {
+      leaveFallbackFocus();
+      if (document.fullscreenElement === workspaceRef.current) void document.exitFullscreen().catch(() => undefined);
+      return;
+    }
+    if (document.fullscreenElement === workspaceRef.current) {
+      try { await document.exitFullscreen(); }
+      catch { /* A later fullscreenchange will keep the state in sync. */ }
+    } else updateFocus(false);
+  }
+
+  useEffect(() => {
+    const syncFullscreen = () => {
+      if (document.fullscreenElement === workspaceRef.current) {
+        nativeFocusActiveRef.current = true;
+        updateFocus(true);
+      } else {
+        const hadNativeFullscreen = nativeFocusActiveRef.current;
+        nativeFocusActiveRef.current = false;
+        if (fallbackFocusRef.current && hadNativeFullscreen) leaveFallbackFocus();
+        else if (!fallbackFocusRef.current) updateFocus(false);
+      }
+    };
+    const onEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && (fallbackFocusRef.current || focusPendingRef.current)) void exitFocus();
+    };
+    document.addEventListener("fullscreenchange", syncFullscreen);
+    document.addEventListener("keydown", onEscape);
+    return () => {
+      focusRequestGeneration.current += 1;
+      document.removeEventListener("fullscreenchange", syncFullscreen);
+      document.removeEventListener("keydown", onEscape);
+      if (document.fullscreenElement === workspaceRef.current) void document.exitFullscreen().catch(() => undefined);
+      if (fallbackFocusRef.current) {
+        fallbackFocusRef.current = false;
+        document.body.style.overflow = previousBodyOverflow.current;
+        restoreOutsideInert();
+      }
+      if (focusedRef.current) { focusedRef.current = false; onFocusChangeRef.current?.(false); }
+    };
+  }, []);
+
+  function toggleSubtitles() {
+    const next = !(subtitlesEnabled ?? localSubtitlesEnabled);
+    if (subtitlesEnabled === undefined) setLocalSubtitlesEnabled(next);
+    onSubtitlesChange?.(next);
+  }
 
   const stopOverview = useCallback(() => {
     overviewGeneration.current += 1;
@@ -261,6 +398,13 @@ export default function CameraWorkspace({ paused, onSnapshot, onActivity }: Prop
         setPiFrame({ url: `data:image/jpeg;base64,${latest.jpeg_base64}`, receivedAt });
       } else {
         setPiFrame(null);
+        const status = await request<{ connected?: boolean; reason?: string }>("piVideoStatus");
+        if (!mountedRef.current || pausedRef.current || generation !== piGeneration.current || !piActiveRef.current) return;
+        if (status.connected !== true) {
+          setPiError(`${status.reason || "The Pi camera stream disconnected."} Check the local tunnel and reconnect with its current token.`);
+          clearPi();
+          return;
+        }
       }
       piPollTimer.current = window.setTimeout(() => { void pollPi(generation); }, 250);
     } catch (error) {
@@ -337,14 +481,14 @@ export default function CameraWorkspace({ paused, onSnapshot, onActivity }: Prop
   const currentSource = snapshotSource === "overview" ? overviewEnabled : Boolean(freshPiFrame);
   const selectedCameraName = devices.find((device) => device.deviceId === selectedDevice)?.label;
 
-  return <section className="camera-workspace" aria-label="Camera workspace">
+  return <section ref={workspaceRef} className={`camera-workspace${focused ? " is-focused" : ""}${fallbackFocusRef.current ? " is-fallback-focus" : ""}`} aria-label="Camera workspace">
     <header className="camera-workspace-head">
       <div><span className="camera-workspace-kicker">YOUR WORKBENCH · CAMERA VIEW</span><h2>See the circuit together</h2><p>Choose a camera to preview. Send one frame only when you ask about this view.</p></div>
-      <div className="camera-workspace-layout" role="group" aria-label="Camera layout">
+      <div className="camera-workspace-head-actions"><div className="camera-workspace-layout" role="group" aria-label="Camera layout">
         <button type="button" className={layout === "overview" ? "selected" : ""} onClick={() => { setLayout("overview"); setSnapshotSource("overview"); }} aria-pressed={layout === "overview"}>Overview</button>
         <button type="button" className={layout === "both" ? "selected" : ""} onClick={() => setLayout("both")} aria-pressed={layout === "both"}>Both</button>
         <button type="button" className={layout === "pi" ? "selected" : ""} onClick={() => { setLayout("pi"); setSnapshotSource("pi"); }} aria-pressed={layout === "pi"}>Pi close-up</button>
-      </div>
+      </div><button type="button" className="camera-workspace-subtitles-button" onClick={toggleSubtitles} aria-pressed={subtitlesEnabled ?? localSubtitlesEnabled}>{(subtitlesEnabled ?? localSubtitlesEnabled) ? "Subtitles on" : "Subtitles off"}</button><button ref={focusButtonRef} type="button" className="camera-workspace-focus-button" onClick={() => void (focused ? exitFocus() : enterFocus())}>{focused ? "Exit full screen" : "Full screen"}</button></div>
     </header>
 
     <div className={`camera-workspace-stage camera-workspace-stage-${layout}`}>
@@ -357,7 +501,11 @@ export default function CameraWorkspace({ paused, onSnapshot, onActivity }: Prop
         {freshPiFrame ? <img src={freshPiFrame.url} alt="Latest Raspberry Pi camera frame" /> : <div className="camera-workspace-empty"><span className="camera-workspace-empty-icon">◎</span><strong>{piConnected ? "Waiting for a current frame" : "Pi camera is off"}</strong><span>{piConnected ? "The preview clears when the frame is stale." : "Connect through an existing local tunnel."}</span></div>}
         <div className="camera-workspace-feed-label"><span className={freshPiFrame ? "camera-workspace-dot is-live" : "camera-workspace-dot"} /> Pi close-up <small>{freshPiFrame ? "Current frame" : piConnected ? "No current frame" : "Not connected"}</small></div>
       </div>
+      {focused && guide && <div className="camera-workspace-focus-guide" aria-label="Guide companion">{guide}</div>}
+      {(subtitlesEnabled ?? localSubtitlesEnabled) && caption?.trim() && <p className="camera-workspace-focus-caption" aria-label="Camera subtitles" aria-live="polite" tabIndex={0}>{caption}</p>}
     </div>
+
+    {focused && <div className="camera-workspace-focus-bar"><span>{paused ? "Previews stopped" : overviewEnabled || freshPiFrame ? "Camera preview · local" : "No camera connected"}</span><div><button type="button" onClick={toggleSubtitles} aria-pressed={subtitlesEnabled ?? localSubtitlesEnabled}>{(subtitlesEnabled ?? localSubtitlesEnabled) ? "Subtitles on" : "Subtitles off"}</button><button type="button" onClick={() => { stopOverview(); void disconnectPi(); onPause?.(); }} disabled={paused}>Pause previews</button><button type="button" onClick={() => void exitFocus()}>Exit full screen</button></div></div>}
 
     <div className="camera-workspace-bottom">
       <div className="camera-workspace-capture">
@@ -388,6 +536,7 @@ export default function CameraWorkspace({ paused, onSnapshot, onActivity }: Prop
         </div>
       </div>
     </details>
+    {helpPanel && <aside className="camera-workspace-help-drawer" aria-label="Photo help review">{helpPanel}</aside>}
     {paused && <p className="camera-workspace-paused">Session paused · camera previews are stopped.</p>}
   </section>;
 }

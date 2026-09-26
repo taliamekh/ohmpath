@@ -24,6 +24,7 @@ test('visual workspace stays opt-in and photo and turret controls fail closed', 
     browser = await chromium.connectOverCDP(endpoint);
     const context = browser.contexts()[0];
     const page = context.pages()[0] || await context.waitForEvent('page');
+    page.setDefaultTimeout(10000);
 
     await expect(page.getByRole('heading', { name: /Let’s look at your circuit/ })).toBeVisible();
     const camera = page.getByRole('region', { name: 'Camera workspace' });
@@ -106,17 +107,16 @@ test('visual workspace stays opt-in and photo and turret controls fail closed', 
     await expect.poll(async () => page.evaluate(async () => (window as any).ohmpath.request('turretStatus'))).toMatchObject({ enabled: false, connected: false, motion_enabled: false, laser_enabled: false });
 
     const previews = page.locator('.guide-expression-preview figure');
-    await expect(previews).toHaveCount(4);
-    for (const [index, expression] of ['neutral', 'thinking', 'stumped', 'happy'].entries()) {
+    await expect(previews).toHaveCount(6);
+    for (const [index, expression] of ['neutral', 'thinking', 'stumped', 'happy', 'smug', 'weary'].entries()) {
       const guide = previews.nth(index).getByRole('img', { name: `Frieren · ${expression}` });
       await expect(guide).toBeVisible();
       const decoded = await guide.locator('.frieren-sprite').evaluate(async (sprite) => {
-        const background = getComputedStyle(sprite).backgroundImage;
-        const source = /^url\(["']?(.*?)["']?\)$/.exec(background)?.[1];
+        const source = sprite.getAttribute('data-source');
         if (!source) return false;
         const image = new Image();
         image.src = source;
-        try { await image.decode(); return image.naturalWidth > 0 && image.naturalHeight > 0; }
+        try { await Promise.race([image.decode(), new Promise((_, reject) => setTimeout(() => reject(new Error('Sprite decode timed out')), 5000))]); return image.naturalWidth > 0 && image.naturalHeight > 0; }
         catch { return false; }
       });
       expect(decoded, `${expression} sprite should decode`).toBe(true);
