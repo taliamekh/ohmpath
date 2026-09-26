@@ -18,6 +18,8 @@ type Props = {
   onSubtitlesChange?: (enabled: boolean) => void;
   onFocusChange?: (focused: boolean) => void;
   onPause?: () => void;
+  speechPending?: boolean;
+  onStopSpeaking?: () => void;
 };
 type CameraDevice = { deviceId: string; label: string };
 type PiFrame = { url: string; receivedAt: number };
@@ -75,7 +77,7 @@ async function decodeJpeg(url: string): Promise<HTMLImageElement> {
   return image;
 }
 
-export default function CameraWorkspace({ paused, onSnapshot, onActivity, guide, helpPanel, caption, subtitlesEnabled, onSubtitlesChange, onFocusChange, onPause }: Props) {
+export default function CameraWorkspace({ paused, onSnapshot, onActivity, guide, helpPanel, caption, subtitlesEnabled, onSubtitlesChange, onFocusChange, onPause, speechPending, onStopSpeaking }: Props) {
   const [devices, setDevices] = useState<CameraDevice[]>([]);
   const [selectedDevice, setSelectedDevice] = useState("");
   const [overviewEnabled, setOverviewEnabled] = useState(false);
@@ -505,7 +507,7 @@ export default function CameraWorkspace({ paused, onSnapshot, onActivity, guide,
       {(subtitlesEnabled ?? localSubtitlesEnabled) && caption?.trim() && <p className="camera-workspace-focus-caption" aria-label="Camera subtitles" aria-live="polite" tabIndex={0}>{caption}</p>}
     </div>
 
-    {focused && <div className="camera-workspace-focus-bar"><span>{paused ? "Previews stopped" : overviewEnabled || freshPiFrame ? "Camera preview · local" : "No camera connected"}</span><div><button type="button" onClick={toggleSubtitles} aria-pressed={subtitlesEnabled ?? localSubtitlesEnabled}>{(subtitlesEnabled ?? localSubtitlesEnabled) ? "Subtitles on" : "Subtitles off"}</button><button type="button" onClick={() => { stopOverview(); void disconnectPi(); onPause?.(); }} disabled={paused}>Pause previews</button><button type="button" onClick={() => void exitFocus()}>Exit full screen</button></div></div>}
+    {focused && <div className="camera-workspace-focus-bar"><span>{paused ? "Previews stopped" : overviewEnabled || freshPiFrame ? "Camera preview · local" : "No camera connected"}</span><div>{speechPending && onStopSpeaking && <button type="button" onClick={onStopSpeaking}>Stop speaking</button>}<button type="button" onClick={toggleSubtitles} aria-pressed={subtitlesEnabled ?? localSubtitlesEnabled}>{(subtitlesEnabled ?? localSubtitlesEnabled) ? "Subtitles on" : "Subtitles off"}</button><button type="button" onClick={() => { stopOverview(); void disconnectPi(); onPause?.(); }} disabled={paused}>Pause previews</button><button type="button" onClick={() => void exitFocus()}>Exit full screen</button></div></div>}
 
     <div className="camera-workspace-bottom">
       <div className="camera-workspace-capture">

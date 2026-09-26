@@ -29,7 +29,7 @@ test('local speech is opt-in and late speech cannot acknowledge a replacement ca
     const context = browser.contexts()[0];
     const page = context.pages()[0] || await context.waitForEvent('page', { timeout: 12000 });
     page.setDefaultTimeout(8000);
-    await expect(page.getByRole('button', { name: 'Create practice bench' })).toBeVisible();
+    await expect(page.getByText('Measurements and circuit tools', { exact: true })).toBeVisible();
 
     await page.evaluate(() => {
       const utterances: any[] = [];
@@ -54,7 +54,8 @@ test('local speech is opt-in and late speech cannot acknowledge a replacement ca
     await page.getByRole('button', { name: 'Settings', exact: false }).first().click();
     await expect(page.getByLabel(/Optional local system voice/)).toBeEnabled();
     await page.getByLabel(/Optional local system voice/).check();
-    await page.getByRole('button', { name: 'Bench', exact: false }).first().click();
+    await page.getByRole('button', { name: 'Live help', exact: false }).first().click();
+    await page.getByText('Measurements and circuit tools', { exact: true }).click();
     await page.getByRole('button', { name: 'Create practice bench' }).click();
     await page.getByRole('button', { name: 'Low-voltage supply' }).click();
     await page.getByLabel('I declare this is a low-voltage').check();

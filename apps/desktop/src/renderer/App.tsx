@@ -6,6 +6,7 @@ import CameraWorkspace, { type CameraCapture } from "./CameraWorkspace";
 import FrierenGuide, { type GuideExpression } from "./FrierenGuide";
 import TurretSettings from "./TurretSettings";
 import ElevenLabsSettings from "./ElevenLabsSettings";
+import useElevenLabsSpeech from "./useElevenLabsSpeech";
 
 type AnyRecord = Record<string, any>;
 type Tab = "bench" | "troubleshoot" | "photo" | "devices" | "settings";
@@ -115,6 +116,10 @@ function App() {
   const sessionIdRef = useRef("");
   const sessionStatusRef = useRef<string>("unknown");
   const lastCompanionPayloadRef = useRef("");
+  const spokenAnswer = useElevenLabsSpeech(
+    speaking => setActivity(speaking ? "speaking" : sessionStatusRef.current === "paused" && tab === "bench" ? "paused" : "idle"),
+    message => { setError(message); setVisualCaption(message); setActivity("error"); },
+  );
 
   const run = useCallback(async <T,>(label: string, work: () => Promise<T>): Promise<T | undefined> => {
     setBusy(label);
@@ -648,6 +653,15 @@ function App() {
   }
 
   function speakReadback() {
+    if (confirmation && spokenAnswer.available && sessionStatusRef.current === "active" && sessionIdRef.current) {
+      cancelLocalSpeech();
+      const sid = sessionIdRef.current;
+      const generation = speechGenerationRef.current;
+      spokenAnswer.speak(confirmation.readback_text, () => {
+        if (sid === sessionIdRef.current && generation === speechGenerationRef.current && sessionStatusRef.current === "active") void acknowledgeReadback();
+      });
+      return;
+    }
     if (!confirmation || !localSpeechEnabled || !localVoice || !("speechSynthesis" in window) || sessionStatusRef.current !== "active" || !sessionIdRef.current) return;
     if (confirmation.readback_text.length > 12_000) { setError("This readback is too long for local speech. Use the on-screen text."); return; }
     window.speechSynthesis.cancel();
@@ -671,20 +685,27 @@ function App() {
   }
 
   const cancelLocalSpeech = useCallback(() => {
+    spokenAnswer.stop();
     const wasSpeaking = activeSpeechRef.current !== null;
     speechGenerationRef.current += 1;
     activeSpeechRef.current = null;
     speechCancelledRef.current = true;
     window.speechSynthesis?.cancel();
     if (wasSpeaking) setActivity(sessionStatusRef.current === "paused" ? "paused" : "idle");
-  }, []);
+  }, [spokenAnswer.stop]);
 
   useEffect(() => {
     cancelLocalSpeech();
   }, [sessionId, session?.revisions?.circuit_revision, session?.arming_epoch,
-    activeRequest?.request_id, confirmation?.confirmation_id, cancelLocalSpeech]);
+    activeRequest?.request_id, confirmation?.confirmation_id, tab, visualPaused, cameraReviewVisible, cancelLocalSpeech]);
 
   const speakLocalText = useCallback((value: unknown) => {
+    if (spokenAnswer.available && typeof value === "string" && value.trim()) {
+      cancelLocalSpeech();
+      setVisualCaption(value);
+      spokenAnswer.speak(value);
+      return;
+    }
     if (!localSpeechEnabled || !localVoice || !("speechSynthesis" in window) || sessionStatusRef.current !== "active" || !sessionIdRef.current) return;
     if (typeof value !== "string" || !value.trim()) return;
     const text = value.trim();
@@ -714,7 +735,7 @@ function App() {
       setError("Local speech could not finish. Captions remain available.");
     };
     window.speechSynthesis.speak(utterance);
-  }, [localSpeechEnabled, localVoice]);
+  }, [localSpeechEnabled, localVoice, spokenAnswer.available, spokenAnswer.speak, cancelLocalSpeech]);
 
   function cancelVoiceActivity() {
     voiceGenerationRef.current += 1;
@@ -760,7 +781,7 @@ function App() {
     try { localStorage.setItem("ohmpath.subtitles", enabled ? "on" : "off"); } catch { /* Session-only preference when storage is unavailable. */ }
   }
 
-  const photoActivity = useCallback((next: "idle" | "thinking" | "error", caption?: string) => {
+  const photoActivity = useCallback((next: "idle" | "listening" | "thinking" | "error", caption?: string) => {
     setActivity(next);
     setGuideExpression(next === "thinking" ? "thinking" : next === "error" ? "stumped" : "neutral");
     setVisualCaption(caption || "");
@@ -829,14 +850,14 @@ function App() {
         <div className="scroll-area">
           {photoWorkspaceVisited && <div hidden={tab !== "photo"}>
             {showGuide && tab === "photo" && <aside className="photo-guide-strip panel" aria-label="Guide companion"><FrierenGuide activity={activity} expression={guideExpression} reducedMotion={reducedMotion} compact /><div><strong>Frieren <span>{activityLabel[activity]}</span></strong><p>{companionCaption}</p></div><button className="text-button" onClick={() => { setGuideExpression("happy"); setVisualCaption("That worked."); }}>That worked ✓</button><button className="text-button" onClick={() => setShowGuide(false)} aria-label="Hide guide">×</button></aside>}
-            <PhotoHelpPage active={tab === "photo"} prefillQuestion={tab === "photo" ? investigatorPrefill : ""} onPrefillConsumed={() => setInvestigatorPrefill("")} onActivity={photoActivity} speechAvailable={false} />
+            <PhotoHelpPage phoneTransfer active={tab === "photo"} prefillQuestion={tab === "photo" ? investigatorPrefill : ""} onPrefillConsumed={() => setInvestigatorPrefill("")} onActivity={photoActivity} speechAvailable={spokenAnswer.available} onReadAloud={speakLocalText} onStopSpeaking={cancelLocalSpeech} />
           </div>}
           {tab === "devices" ? (
             <DevicesPage sid={sessionId} paused={session?.status === "paused"} onStop={stopSession} />
           ) : tab === "troubleshoot" ? (
-            <TroubleshootPage sessionId={sessionId} circuitRevision={session?.revisions?.circuit_revision ?? ""} contextEpoch={session?.arming_epoch ?? ""} prefillQuestion={investigatorPrefill} onPrefillConsumed={() => setInvestigatorPrefill("")} localSpeechAvailable={localSpeechEnabled && Boolean(localVoice) && session?.status === "active"} onReadAloud={speakLocalText} onStopSpeaking={cancelLocalSpeech} />
+            <TroubleshootPage sessionId={sessionId} circuitRevision={session?.revisions?.circuit_revision ?? ""} contextEpoch={session?.arming_epoch ?? ""} prefillQuestion={investigatorPrefill} onPrefillConsumed={() => setInvestigatorPrefill("")} localSpeechAvailable={(spokenAnswer.available || localSpeechEnabled && Boolean(localVoice)) && session?.status === "active"} onReadAloud={speakLocalText} onStopSpeaking={cancelLocalSpeech} />
           ) : tab === "photo" ? null : tab === "settings" ? (
-            <SettingsPage reducedMotion={reducedMotion} onReducedMotion={setReducedMotion} showGuide={showGuide} onShowGuide={setShowGuide} subtitlesEnabled={subtitlesEnabled} onSubtitles={changeSubtitles} localSpeechEnabled={localSpeechEnabled} onLocalSpeech={toggleLocalSpeech} localVoice={localVoice} voiceStatus={voiceStatus} reasoningStatus={health?.reasoning} companionEnabled={companionEnabled} companionBusy={companionBusy} companionError={companionError} onCompanion={setFloatingCompanion} />
+            <SettingsPage onVoiceChanged={() => { cancelLocalSpeech(); void spokenAnswer.refresh(); }} reducedMotion={reducedMotion} onReducedMotion={setReducedMotion} showGuide={showGuide} onShowGuide={setShowGuide} subtitlesEnabled={subtitlesEnabled} onSubtitles={changeSubtitles} localSpeechEnabled={localSpeechEnabled} onLocalSpeech={toggleLocalSpeech} localVoice={localVoice} voiceStatus={voiceStatus} reasoningStatus={health?.reasoning} companionEnabled={companionEnabled} companionBusy={companionBusy} companionError={companionError} onCompanion={setFloatingCompanion} />
           ) : tab === "bench" ? (
             <>
               <div className="live-session-tools">
@@ -856,12 +877,13 @@ function App() {
               {visualPaused && <div className="camera-resume"><span>Camera previews stopped.</span><button className="button secondary small" onClick={() => setVisualPaused(false)} disabled={!health}>Resume camera workspace</button></div>}
               <div className="camera-guide-layout">
                 <CameraWorkspace paused={visualPaused || !health} onSnapshot={useCameraSnapshot} onPause={() => setVisualPaused(true)}
+                  speechPending={spokenAnswer.pending} onStopSpeaking={cancelLocalSpeech}
                   caption={companionCaption} subtitlesEnabled={subtitlesEnabled} onSubtitlesChange={changeSubtitles}
                   guide={showGuide ? <FrierenGuide activity={activity} expression={guideExpression} reducedMotion={reducedMotion} /> : undefined}
                   helpPanel={cameraReview ? <div className={`camera-review-content${cameraReviewVisible ? "" : " is-collapsed"}`}>
                     <button className="button secondary small camera-review-toggle" onClick={() => setCameraReviewVisible(visible => !visible)}>{cameraReviewVisible ? "Back to camera" : "Continue this question"}</button>
                     <div hidden={!cameraReviewVisible}>
-                      <PhotoHelpPage initialCapture={photoCapture} onCaptureConsumed={() => setPhotoCapture(undefined)} onActivity={photoActivity} speechAvailable={false} />
+                      <PhotoHelpPage active={cameraReviewVisible} initialCapture={photoCapture} onCaptureConsumed={() => setPhotoCapture(undefined)} onActivity={photoActivity} speechAvailable={spokenAnswer.available} onReadAloud={speakLocalText} onStopSpeaking={cancelLocalSpeech} />
                     </div>
                   </div> : undefined} />
                 {showGuide && <aside className="bench-guide-card panel"><span className="eyebrow">YOUR CIRCUIT COMPANION</span><h2>Frieren</h2><FrierenGuide activity={activity} expression={guideExpression} reducedMotion={reducedMotion} /><p>{companionCaption}</p><button className="button secondary" onClick={() => setTab("photo")}>Upload a photo or diagram <span>↗</span></button><button className="text-button" onClick={() => { setGuideExpression("smug"); setVisualCaption("That worked."); }}>That worked ✓</button><button className="text-button" onClick={() => { setGuideExpression("weary"); setVisualCaption("Hm. Then we’re still missing something. Show me what changed, and we’ll try another approach."); }}>Still stuck</button></aside>}
@@ -890,7 +912,7 @@ function App() {
                   <details className="transcript-test"><summary>Test routing with typed text <span>NO MICROPHONE</span></summary><div className="transcript-test-row"><input value={transcriptTest} maxLength={4096} onChange={(event) => setTranscriptTest(event.target.value)} placeholder="Try: ‘I read 1.65 volts’ or ask a circuit question" /><button className="button secondary small" onClick={submitTranscriptTest} disabled={!sessionId || !transcriptTest.trim() || Boolean(busy)}>Route text</button></div></details>
                   {voiceReply?.route === "question" && voiceReply.result && <div className="voice-answer"><strong>Local evidence summary</strong><p>{voiceReply.result.text}</p><small>{voiceReply.result.evidence_ids?.length ? `Evidence: ${voiceReply.result.evidence_ids.join(", ")}` : "No supporting evidence IDs were returned."}{voiceReply.result.limitations?.length ? ` · ${voiceReply.result.limitations.join("; ")}` : ""}</small></div>}
                   {voiceReply?.route === "question" && (typeof voiceReply.question === "string" || typeof voiceReply.transcript?.text === "string") && <button className="text-button voice-investigate-button" onClick={() => { const originalQuestion = typeof voiceReply.question === "string" ? voiceReply.question : voiceReply.transcript.text; setInvestigatorPrefill(originalQuestion.slice(0, 4000)); setTab("photo"); }}>Ask with a photo →</button>}
-                  {voiceReply?.route === "question" && localSpeechEnabled && localVoice && typeof voiceReply.result?.text === "string" && <button className="button secondary small" onClick={() => speakLocalText(voiceReply.result.text)} disabled={voiceReply.result.text.length > 12000 || session?.status !== "active"}>{voiceReply.result.text.length > 12000 ? "Summary too long to read aloud" : `Read local summary · ${localVoice.name}`}</button>}
+                  {voiceReply?.route === "question" && (spokenAnswer.available || localSpeechEnabled && localVoice) && typeof voiceReply.result?.text === "string" && <button className="button secondary small" onClick={() => speakLocalText(voiceReply.result.text)} disabled={voiceReply.result.text.length > (spokenAnswer.available ? 1000 : 12000) || session?.status !== "active"}>{voiceReply.result.text.length > 12000 ? "Summary too long to read aloud" : spokenAnswer.available ? "Listen to summary" : `Read local summary · ${localVoice?.name}`}</button>}
                   {voiceReply?.route && <div className="voice-route"><span>ROUTE</span> {niceName(voiceReply.route)}{voiceReply.transcript?.text ? <em>“{voiceReply.transcript.text}”</em> : null}</div>}
                 </div>
               </section>
@@ -956,7 +978,7 @@ function App() {
                           <div className="probe-instructions"><ProbeMark color="red" /> Red probe on <strong>{activeRequest.red_node_id}</strong><span className="probe-separator">·</span><ProbeMark color="black" /> Black probe on <strong>{activeRequest.black_node_id}</strong></div>
                           <div className="candidate-entry"><label htmlFor="reading-entry">{isManualSession ? "READING YOU OBSERVED ON YOUR METER" : "READING FROM YOUR DISPLAY OR PRACTICE SCENARIO"}</label><div className="candidate-input-row"><input id="reading-entry" value={readingText} onChange={(event) => setReadingText(event.target.value)} placeholder="e.g. 1.65 V or OL" maxLength={4096} /><button className="button primary" onClick={submitCandidate} disabled={Boolean(busy) || !readingText.trim()}>{busy === "candidate" ? <Spinner /> : candidate ? "Replace candidate" : "Read back"}<span>→</span></button></div><small>{candidate ? "Submitting another value replaces this pending candidate and readback." : isManualSession ? "Type the value you observed. Confirmation records your report; Ohm Path cannot see or verify the instrument." : "Entering text creates a candidate. It does not confirm a measurement."}</small><div className="meter-ocr-row"><button className="button secondary small" onClick={readSelectedMeterImage} disabled={Boolean(busy)}>{busy === "meter-image" ? "Preparing image…" : "Read selected meter image · optional, experimental"}</button><small>Select an existing, cropped image in the native file picker. Raw camera frames are not inspected or saved; local OCR may be unavailable.</small></div></div>
                           {candidate && <div className="candidate-card"><div className="candidate-icon">{candidate.display_state === "numeric" ? "↗" : "?"}</div><div className="candidate-info"><span className="eyebrow">PENDING CANDIDATE · {candidate.source}</span><strong>{candidate.value !== null ? `${candidate.value} ${candidate.si_unit ?? ""}` : candidate.display_state === "over_limit" ? "Over limit · OL" : "Needs clarification"}</strong><small>Original: “{candidate.original_text}”{candidate.ambiguities?.length ? ` · ${candidate.ambiguities.join(", ")}` : ""}</small></div>{candidate.display_state !== "unknown" && candidate.display_state !== "unstable" && <div className="candidate-state">AWAITING YOU</div>}</div>}
-                    {confirmation && <div className="readback-card"><div className="readback-label"><span className="readback-wave">〰</span><div><span className="eyebrow">CHECK THIS READBACK</span><p>{confirmation.readback_text}</p></div></div><div className="readback-actions">{localSpeechEnabled && localVoice && <button className="button secondary small" onClick={speakReadback} disabled={Boolean(busy)}>Read aloud · {localVoice.name}</button>}<button className="button secondary small" onClick={acknowledgeReadback} disabled={Boolean(busy) || readbackAcknowledged}>{readbackAcknowledged ? "Readback checked ✓" : "I checked this readback"}</button><button className="button confirm-button small" onClick={confirmCandidate} disabled={!readbackAcknowledged || Boolean(busy)}>{isManualSession ? "Confirm my reported reading" : "Confirm practice input"}<span>✓</span></button></div>{isManualSession && <small className="manual-provenance-note">Your confirmation records a user-reported physical measurement. It is not automatically verified.</small>}{correctableEvents.length > 0 && <label className="correction-select">CORRECTING A PREVIOUS ENTRY? <select value={correctionEvent} onChange={(event) => setCorrectionEvent(event.target.value)}><option value="">No correction</option>{correctableEvents.map((event) => <option key={event.event_id} value={event.event_id}>{event.payload?.candidate?.value ?? "OL"} {event.payload?.candidate?.si_unit ?? ""} · event {event.event_id.slice(0, 8)}</option>)}</select></label>}</div>}
+                    {confirmation && <div className="readback-card"><div className="readback-label"><span className="readback-wave">〰</span><div><span className="eyebrow">CHECK THIS READBACK</span><p>{confirmation.readback_text}</p></div></div><div className="readback-actions">{(spokenAnswer.available || localSpeechEnabled && localVoice) && <button className="button secondary small" onClick={speakReadback} disabled={Boolean(busy)}>{spokenAnswer.available ? "Listen to readback" : `Read aloud · ${localVoice?.name}`}</button>}<button className="button secondary small" onClick={acknowledgeReadback} disabled={Boolean(busy) || readbackAcknowledged}>{readbackAcknowledged ? "Readback checked ✓" : "I checked this readback"}</button><button className="button confirm-button small" onClick={confirmCandidate} disabled={!readbackAcknowledged || Boolean(busy)}>{isManualSession ? "Confirm my reported reading" : "Confirm practice input"}<span>✓</span></button></div>{isManualSession && <small className="manual-provenance-note">Your confirmation records a user-reported physical measurement. It is not automatically verified.</small>}{correctableEvents.length > 0 && <label className="correction-select">CORRECTING A PREVIOUS ENTRY? <select value={correctionEvent} onChange={(event) => setCorrectionEvent(event.target.value)}><option value="">No correction</option>{correctableEvents.map((event) => <option key={event.event_id} value={event.event_id}>{event.payload?.candidate?.value ?? "OL"} {event.payload?.candidate?.si_unit ?? ""} · event {event.event_id.slice(0, 8)}</option>)}</select></label>}</div>}
                         </div>
                       </div>
                     ) : (
@@ -991,6 +1013,8 @@ function App() {
         </div>
         <footer className="app-footer"><span>Ohm Path · {isManualSession ? "Manual user-reported entry" : "Local practice environment"}</span><span>Visual guidance is not electrical verification.</span></footer>
       </main>
+      {spokenAnswer.pending && <div className="speech-playback-control" role="status"><span>{activity === "speaking" ? "Frieren is speaking" : "Preparing spoken answer…"}</span><button type="button" className="button secondary small" onClick={cancelLocalSpeech}>Stop speaking</button></div>}
+      {error && tab !== "bench" && <div className="toast error" role="alert"><span>!</span><div><strong>Needs attention</strong><small>{error}</small></div><button onClick={() => setError("")} aria-label="Dismiss">×</button></div>}
 
       {showGuide && tab !== "bench" && tab !== "settings" && tab !== "photo" && <aside className="guide-float" aria-label="Guide companion"><div className="guide-float-head"><span className="guide-mini-dot" /><span>FRIEREN</span><button onClick={() => setShowGuide(false)} aria-label="Hide guide">×</button></div><div className="guide-float-body"><FrierenGuide activity={activity} expression={guideExpression} reducedMotion={reducedMotion} compact /><div><strong>{activityLabel[activity]}</strong><small>{companionCaption}</small><button className="text-button" onClick={() => { setGuideExpression("happy"); setVisualCaption("That worked."); }}>That worked ✓</button></div></div></aside>}
     </div>
@@ -1092,7 +1116,8 @@ function ComingSoon({ tab, onBack }: { tab: Tab; onBack: () => void }) {
   return <section className="coming-soon panel"><div className="coming-orbit"><span>Ω</span><i /><b /></div><span className="eyebrow">WORKSPACE MODULE</span><h1>{title}</h1><p>This area is reserved for {title.toLowerCase()} tools. This preview only shows features backed by the current local service.</p><div className="coming-status"><span /> NO CAPABILITY CLAIMED</div><button className="button secondary" onClick={onBack}>Return to practice bench <span>←</span></button></section>;
 }
 
-function SettingsPage({ reducedMotion, onReducedMotion, showGuide, onShowGuide, subtitlesEnabled, onSubtitles, localSpeechEnabled, onLocalSpeech, localVoice, voiceStatus, reasoningStatus, companionEnabled, companionBusy, companionError, onCompanion }: {
+function SettingsPage({ onVoiceChanged, reducedMotion, onReducedMotion, showGuide, onShowGuide, subtitlesEnabled, onSubtitles, localSpeechEnabled, onLocalSpeech, localVoice, voiceStatus, reasoningStatus, companionEnabled, companionBusy, companionError, onCompanion }: {
+  onVoiceChanged: () => void;
   reducedMotion: boolean;
   onReducedMotion: (value: boolean) => void;
   showGuide: boolean;
@@ -1112,7 +1137,7 @@ function SettingsPage({ reducedMotion, onReducedMotion, showGuide, onShowGuide, 
   return <div className="settings-page">
     <div className="page-heading settings-heading"><div><h1>Settings</h1><p>Your guide, voice connection, and optional turret.</p></div></div>
     <div className="settings-grid">
-      <ElevenLabsSettings />
+      <ElevenLabsSettings onChanged={onVoiceChanged} />
       <TurretSettings />
       <section className="panel settings-panel"><PanelHeader kicker="ACCESSIBILITY" title="Display preferences" />
         <label className="preference-row"><span><strong>Reduce motion</strong><small>Stop decorative animation across the guide and interface.</small></span><input type="checkbox" checked={reducedMotion} onChange={(event) => onReducedMotion(event.target.checked)} /></label>
@@ -1129,7 +1154,7 @@ function SettingsPage({ reducedMotion, onReducedMotion, showGuide, onShowGuide, 
       <section className="panel settings-panel runtime-panel"><PanelHeader kicker="RUNTIME BOUNDARIES" title="Connected services" />
         <div className="runtime-row"><span><strong>Reasoning</strong><small>{reasoningStatus === "subscription_on_request" ? "Subscription route; account and allowance checks run before each request." : "Preflight status is not currently available."}</small></span><span className={`runtime-state ${reasoningStatus === "subscription_on_request" ? "safe" : "paused"}`}>{reasoningStatus === "subscription_on_request" ? "ON REQUEST" : "UNAVAILABLE"}</span></div>
         <div className="runtime-row"><span><strong>Local speech recognition</strong><small>whisper.cpp · {voiceStatus?.model ?? "small.en"} · microphone is user-controlled and currently off.</small></span><span className={`runtime-state ${["ready", "installed"].includes(voiceStatus?.status) ? "safe" : "paused"}`}>{voiceStatus?.status?.toUpperCase() ?? "CHECKING"}</span></div>
-        <div className="runtime-row"><span><strong>ElevenLabs voice</strong><small>Account linking is above. Speech generation remains disabled during setup.</small></span><span className="runtime-state">SPEECH OFF</span></div>
+        <div className="runtime-row"><span><strong>ElevenLabs voice</strong><small>Enable above, then press Listen beside an answer. Captions always remain available.</small></span><span className="runtime-state">ON REQUEST</span></div>
         <div className="runtime-row"><span><strong>Paid fallback</strong><small>Automatic paid or model downgrade is not enabled.</small></span><span className="runtime-state safe">OFF</span></div>
         <div className="runtime-row"><span><strong>Physical output</strong><small>Laser and motion remain disabled.</small></span><span className="runtime-state paused">LOCKED</span></div>
       </section>

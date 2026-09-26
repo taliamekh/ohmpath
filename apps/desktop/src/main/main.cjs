@@ -9,6 +9,8 @@ const { prepareReviewedImage } = require('./reviewed-image.cjs');
 const { createElevenLabsConnection } = require('./elevenlabs.cjs');
 const { createPhotoImages, UUID } = require('./photo-images.cjs');
 const { createTurretPreference } = require('./turret-preference.cjs');
+const { createPhonePhotoBridge } = require('./phone-photos.cjs');
+const QRCode = require('qrcode');
 const piVideo = new PiVideoClient();
 const photoImages = createPhotoImages(nativeImage);
 const { MAX_UPLOAD_BYTES } = require('./photo-upload.cjs');
@@ -29,6 +31,29 @@ let microphoneAllowed = false;
 let cameraAllowed = false;
 let elevenLabs;
 let turretPreference;
+let phonePhotos;
+let phonePhotoAccepting = false;
+let pendingPhonePhoto = null;
+let phoneQr = { url: '', data: '' };
+
+function releasePendingPhonePhoto() {
+  if (pendingPhonePhoto) photoImages.release(pendingPhonePhoto.image.image_id);
+  pendingPhonePhoto = null;
+}
+
+async function phonePhotoStatus() {
+  const status = phonePhotos.status();
+  if (status.active && status.url !== phoneQr.url) {
+    const data = await QRCode.toDataURL(status.url, {
+      errorCorrectionLevel: 'M', width: 240, margin: 3,
+      color: { dark: '#263c2eff', light: '#fffdf4ff' },
+    });
+    if (phonePhotos.status().url !== status.url) return phonePhotoStatus();
+    phoneQr = { url: status.url, data };
+  }
+  if (!status.active) phoneQr = { url: '', data: '' };
+  return { ...status, qr_data_url: phoneQr.data, pending: Boolean(pendingPhonePhoto), interfaces: phonePhotos.interfaces() };
+}
 app.on('second-instance', () => {
   if (mainWindow && !mainWindow.isDestroyed() && process.env.OHMPATH_HEADLESS !== '1') {
     if (mainWindow.isMinimized()) mainWindow.restore();
@@ -81,7 +106,7 @@ async function startBench() {
 async function callBench(path, method, body) {
   if (!baseUrl || !child || child.exitCode !== null) throw new Error('The local bench is disconnected. Restart Ohm Path.');
   const response = await fetch(baseUrl + path, { method, headers: { Authorization: `Bearer ${userToken}`, 'Content-Type': 'application/json' },
-    ...(body === undefined ? {} : { body: JSON.stringify(body) }), signal: AbortSignal.timeout(path.endsWith('/transcribe') ? 75000 : path.endsWith('/imports') ? 35000 : 20000) });
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }), signal: AbortSignal.timeout(path.endsWith('/transcribe') || path.endsWith('/transcribe-question') ? 75000 : path.endsWith('/imports') ? 35000 : 20000) });
   const result = await response.json();
   if (!response.ok) throw new Error(result.message || JSON.stringify(result.detail || result.error));
   return result;
@@ -129,9 +154,30 @@ ipcMain.handle('ohmpath:companion-hide', event => {
 
 ipcMain.handle('ohmpath:request', async (event, action, payload) => {
   if (!trustedSender(event) || typeof action !== 'string' || payload === null || typeof payload !== 'object'
-      || JSON.stringify(payload).length > (action === 'transcribe' ? 2100000 : action === 'photoImportCapture' ? 2701000 : 60000)) throw new Error('Invalid application message.');
+      || JSON.stringify(payload).length > (['transcribe', 'photoTranscribe'].includes(action) ? 2100000 : action === 'photoImportCapture' ? 2701000 : 60000)) throw new Error('Invalid application message.');
   if (action === 'turretStatus') return turretPreference.status();
   if (action === 'setTurretEnabled') return turretPreference.set(payload.enabled);
+  if (action === 'phonePhotoStatus') return phonePhotoStatus();
+  if (action === 'phonePhotoSetAccepting') {
+    phonePhotoAccepting = payload.accepting === true;
+    return { accepting: phonePhotoAccepting };
+  }
+  if (action === 'phonePhotoStart') {
+    if (!phonePhotoAccepting) throw new Error('Open Photo help with room for another image first.');
+    await phonePhotos.start({ address: payload.address });
+    return phonePhotoStatus();
+  }
+  if (action === 'phonePhotoStop') {
+    await phonePhotos.stop();
+    releasePendingPhonePhoto();
+    return phonePhotoStatus();
+  }
+  if (action === 'phonePhotoTake') {
+    if (!phonePhotoAccepting) return { photo: null };
+    const photo = pendingPhonePhoto;
+    pendingPhonePhoto = null;
+    return { photo };
+  }
   if (action === 'photoChooseImage') {
     const selected = await dialog.showOpenDialog(mainWindow, { title: 'Choose a circuit photo or diagram', properties: ['openFile'],
       filters: [{ name: 'Circuit photos and diagrams', extensions: ['png', 'jpg', 'jpeg'] }] });
@@ -155,6 +201,7 @@ ipcMain.handle('ohmpath:request', async (event, action, payload) => {
     } finally { await handle.close(); }
   }
   if (action === 'photoPasteImage') return { image: photoImages.paste(clipboard) };
+  if (action === 'photoTranscribe') return callBench('/v1/voice/transcribe-question', 'POST', { wav_base64: payload.wav_base64 });
   if (action === 'photoImportCapture') return { image: photoImages.capture(payload) };
   if (action === 'photoReleaseImage') return photoImages.release(payload.image_id);
   if (action === 'photoAsk') {
@@ -174,6 +221,7 @@ ipcMain.handle('ohmpath:request', async (event, action, payload) => {
   const voiceConnectionActions = {
     elevenLabsStatus: 'status', elevenLabsConnect: 'connect', elevenLabsRefresh: 'refresh',
     elevenLabsSelectVoice: 'selectVoice', elevenLabsDisconnect: 'disconnect',
+    elevenLabsSetGenerationEnabled: 'setGenerationEnabled', elevenLabsSpeak: 'speak', elevenLabsCancelSpeech: 'cancelSpeech',
   };
   if (Object.hasOwn(voiceConnectionActions, action)) {
     if (!elevenLabs) throw new Error('The private voice connection is not ready.');
@@ -197,6 +245,7 @@ ipcMain.handle('ohmpath:request', async (event, action, payload) => {
   if (action === 'piVideoStatus') return piVideo.status();
   if (action === 'piVideoDisconnect') return piVideo.disconnect();
   if (action === 'pause' || action === 'stop' || action === 'selectFixture') {
+    void elevenLabs?.handle('cancelSpeech', {});
     piVideo.disconnect(); microphoneAllowed = false; cameraAllowed = false;
   }
   const { sid, ...body } = payload;
@@ -282,8 +331,20 @@ ipcMain.handle('ohmpath:request', async (event, action, payload) => {
 
 app.whenReady().then(async () => {
   if (!ownsProfile) return;
-  elevenLabs = createElevenLabsConnection({ safeStorage, filePath: join(app.getPath('userData'), 'private', 'elevenlabs.enc') });
+  elevenLabs = createElevenLabsConnection({ safeStorage, filePath: join(app.getPath('userData'), 'private', 'elevenlabs.enc'),
+    onSpeechEvent(value) {
+      if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.webContents.isDestroyed())
+        mainWindow.webContents.send('ohmpath:speech', value);
+    } });
   turretPreference = createTurretPreference(join(app.getPath('userData'), 'settings', 'turret.json'));
+  phonePhotos = createPhonePhotoBridge({ onPhoto({ bytes, question }) {
+    if (!phonePhotoAccepting || pendingPhonePhoto || !mainWindow || mainWindow.isDestroyed())
+      throw new Error('Photo help is not ready for another photo.');
+    const image = photoImages.addUpload(bytes, 'Phone photo');
+    pendingPhonePhoto = { image, question: question || '' };
+    mainWindow.webContents.send('ohmpath:phone-photo');
+    return image.image_id;
+  } });
   session.defaultSession.setPermissionCheckHandler((contents, permission, _origin, details) => {
     const expected = require('node:url').pathToFileURL(join(root, 'dist/desktop/index.html')).href;
     const url = contents?.getURL() || '';
@@ -308,8 +369,11 @@ app.whenReady().then(async () => {
   mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   mainWindow.webContents.on('will-navigate', event => event.preventDefault());
   mainWindow.webContents.on('render-process-gone', () => {
+    void elevenLabs?.handle('cancelSpeech', {});
     // A dead interface must not leave its investigator or bench process running.
     microphoneAllowed = false; cameraAllowed = false;
+    phonePhotoAccepting = false;
+    void phonePhotos?.stop();
     piVideo.disconnect();
     console.error('Ohm Path interface stopped. Restart to recover saved evidence; fresh setup checks are required.');
     app.quit();
@@ -327,6 +391,10 @@ app.on('window-all-closed', () => app.quit());
 app.on('before-quit', event => {
   if (stopping) return;
   stopping = true;
+  void elevenLabs?.handle('cancelSpeech', {});
+  phonePhotoAccepting = false;
+  void phonePhotos?.stop();
+  pendingPhonePhoto = null;
   photoImages.clear();
   piVideo.disconnect();
   if (companionWindow && !companionWindow.isDestroyed()) companionWindow.close();
