@@ -5,7 +5,7 @@ import { resolve } from 'node:path';
 import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 
-test('a renderer crash closes its private bench instead of leaving an investigator running', async () => {
+test('renderer reload preserves its session and a crash closes the private bench', async () => {
   const dataDir = await mkdtemp(resolve(tmpdir(), 'ohmpath-crash-test-'));
   const requireElectron = createRequire(resolve('package.json'));
   const desktop = spawn(requireElectron('electron'), [resolve('.'), '--remote-debugging-port=0'], {
@@ -25,6 +25,8 @@ test('a renderer crash closes its private bench instead of leaving an investigat
     const context = browser.contexts()[0];
     const page = context.pages()[0] || await context.waitForEvent('page');
     await page.getByRole('button', { name: 'Create practice bench' }).click();
+    await expect(page.getByRole('button', { name: 'Run local solve' })).toBeVisible();
+    await page.reload({ waitUntil: 'domcontentloaded' });
     await expect(page.getByRole('button', { name: 'Run local solve' })).toBeVisible();
     const devtools = await context.newCDPSession(page);
     // Chromium crashes only this isolated test renderer. No physical devices or model turn are opened.

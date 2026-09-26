@@ -74,3 +74,27 @@ Pi preview remains a raw
 temporary image, without pose/spot detection or calibration. The companion
 still labels character art and voice as pending. No physical laser or motor
 actuation is available in this desktop path.
+
+## Speech callback review
+
+Source-only review of the current `App.tsx` and `TroubleshootPage.tsx` speech
+paths found no direct route from a general answer to measurement acceptance.
+The general `speakLocalText` completion callback only resets the activity
+indicator. The readback utterance completion callback alone calls
+`acknowledgeReadback`; it checks the speech generation, session ID, active
+session status, and cancellation flag first. The parent cancels local speech
+when the session, circuit revision, arming epoch, request ID, or confirmation
+ID changes. The bench readback endpoint also requires the exact active
+confirmation ID and unexpired challenge; confirmation requires the candidate,
+request, context hash, and revisions. These are source observations, not a
+speaker or microphone test.
+
+The earlier stale explanation read-aloud gap is resolved in the current
+source. `App.tsx` now passes circuit revision and arming epoch to
+`TroubleshootPage`. Its context reset cancels speech and an outstanding turn,
+and clears the stored answer when the session, revision, or epoch changes.
+The completed-answer view and read-aloud button require the answer revision
+to match the current circuit; local speech is available only while the
+session is active. `loadSession` also clears the previous local voice summary.
+The coordinator reported a successful build for these changes; this review
+did not rerun it. No speech E2E or physical audio test was run here.

@@ -122,6 +122,7 @@ function App() {
     ]);
     if (sessionIdRef.current && sessionIdRef.current !== sid) cancelVoiceActivity();
     setSession(nextSession);
+    setVoiceReply(null);
     setGraph(graphResult?.graph ?? graphResult);
     setEvents(eventResult ?? []);
     setSessionId(sid);
@@ -752,7 +753,7 @@ function App() {
           {tab === "devices" ? (
             <DevicesPage sid={sessionId} paused={session?.status === "paused"} onStop={stopSession} />
           ) : tab === "troubleshoot" ? (
-            <TroubleshootPage sessionId={sessionId} prefillQuestion={investigatorPrefill} onPrefillConsumed={() => setInvestigatorPrefill("")} localSpeechAvailable={localSpeechEnabled && Boolean(localVoice)} onReadAloud={speakLocalText} onStopSpeaking={cancelLocalSpeech} />
+            <TroubleshootPage sessionId={sessionId} circuitRevision={session?.revisions?.circuit_revision ?? ""} contextEpoch={session?.arming_epoch ?? ""} prefillQuestion={investigatorPrefill} onPrefillConsumed={() => setInvestigatorPrefill("")} localSpeechAvailable={localSpeechEnabled && Boolean(localVoice) && session?.status === "active"} onReadAloud={speakLocalText} onStopSpeaking={cancelLocalSpeech} />
           ) : tab === "laboratory" ? (
             <CircuitLabPage sid={sessionId} />
           ) : tab === "settings" ? (

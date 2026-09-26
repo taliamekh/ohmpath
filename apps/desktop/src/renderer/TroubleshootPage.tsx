@@ -23,8 +23,10 @@ function plainAnswer(value: unknown): string {
   return value == null ? "No answer text was returned." : String(value);
 }
 
-export default function TroubleshootPage({ sessionId, prefillQuestion = "", onPrefillConsumed, localSpeechAvailable = false, onReadAloud, onStopSpeaking }: {
+export default function TroubleshootPage({ sessionId, circuitRevision, contextEpoch, prefillQuestion = "", onPrefillConsumed, localSpeechAvailable = false, onReadAloud, onStopSpeaking }: {
   sessionId: string;
+  circuitRevision: string;
+  contextEpoch: string;
   prefillQuestion?: string;
   onPrefillConsumed?: () => void;
   localSpeechAvailable?: boolean;
@@ -67,6 +69,7 @@ export default function TroubleshootPage({ sessionId, prefillQuestion = "", onPr
 
   useEffect(() => {
     const previousTurn = turnRef.current;
+    onStopSpeaking?.();
     if (pollTimerRef.current !== null) window.clearTimeout(pollTimerRef.current);
     pollTimerRef.current = null;
     turnRef.current = null;
@@ -80,7 +83,7 @@ export default function TroubleshootPage({ sessionId, prefillQuestion = "", onPr
     setFirmware(null);
     setInvestigation(null);
     setQuestion("");
-  }, [sessionId]);
+  }, [sessionId, circuitRevision, contextEpoch]);
 
   useEffect(() => {
     if (!prefillQuestion) return;
@@ -228,13 +231,13 @@ export default function TroubleshootPage({ sessionId, prefillQuestion = "", onPr
           <div className="investigation-state-head"><span className={`turn-dot ${investigation.status}`} /> <strong>{String(investigation.status ?? "starting").toUpperCase()}</strong>{investigation.turn_id && <code>{investigation.turn_id.slice(0, 12)}</code>}</div>
           {investigation.status === "running" && <p>Waiting for the investigation service. This status will refresh automatically.</p>}
           {investigation.status === "completed" && <div className="investigation-answer"><span className="eyebrow">EVIDENCE-GROUNDED RESPONSE</span>
-            {isValidatedAnswer(answer) ? <>
+            {isValidatedAnswer(answer) && answer.circuit_revision === circuitRevision ? <>
               <p>{(answer as RecordLike).explanation}</p>
               <div className="investigation-citations"><span>CIRCUIT REVISION <code>{(answer as RecordLike).circuit_revision || "unknown"}</code></span><span>EVIDENCE <code>{Array.isArray((answer as RecordLike).evidence_ids) && (answer as RecordLike).evidence_ids.length ? (answer as RecordLike).evidence_ids.join(" · ") : "none cited"}</code></span></div>
               <div className="proposed-test-note"><strong>Proposed test · review required</strong><span>{(answer as RecordLike).proposed_test_id || "No test proposed"}. This is not approval to run a test.</span></div>
               {localSpeechAvailable && <button className="button secondary small explanation-read-aloud" onClick={() => onReadAloud?.((answer as RecordLike).explanation)} disabled={(answer as RecordLike).explanation.length > 12000}>{(answer as RecordLike).explanation.length > 12000 ? "Explanation too long to read aloud" : "Read explanation · local voice"}</button>}
               {investigation.actual_model && <small>Reasoning model {investigation.actual_model} · {investigation.effort || "effort not reported"}</small>}
-            </> : <pre>{plainAnswer(answer)}</pre>}
+            </> : isValidatedAnswer(answer) ? <p>The circuit changed. Start a new investigation for the current evidence.</p> : <pre>{plainAnswer(answer)}</pre>}
           </div>}
           {(investigation.status === "failed" || investigation.status === "cancelled") && <p>{investigation.message || investigation.error || (investigation.status === "cancelled" ? "This turn was cancelled." : "The investigation did not complete.")}</p>}
           {investigation.status === "completed" && investigation.turn_id && <small>Turn {investigation.turn_id} · review cited evidence before acting.</small>}
