@@ -11,7 +11,7 @@ def voltage_request(tmp_path):
     store = SessionStore(tmp_path / "session.sqlite")
     sid = store.create()["session_id"]
     measurements = Measurements(store)
-    measurements.setup(sid, "on_current_limited", {"low_voltage": True})
+    measurements.setup(sid, "on_current_limited", {"low_voltage_confirmed": True})
     request = measurements.request(sid, "voltage", "DC_voltage", "VIN", "0")
     return store, measurements, sid, request
 
@@ -63,3 +63,30 @@ def test_request_empty_range_and_instrument_are_rejected(bench):
             sid, "voltage", "DC_voltage", "VIN", "0", meter_range="", instrument_id="",
         )
     assert error.value.code == "measurement_request_invalid"
+
+
+def _confirm_reading(measurements, sid, request, text="1 V", supersedes=None):
+    pending = measurements.typed_candidate(sid, text, request["request_id"])
+    confirmation = measurements.readback(sid, pending["confirmation"]["confirmation_id"])
+    keys = ("confirmation_id", "candidate_id", "request_id", "measurement_context_hash", "revisions")
+    return measurements.confirm(sid, **{key: confirmation[key] for key in keys}, supersedes_event_id=supersedes)
+
+
+def test_correction_cannot_remove_reading_at_other_probe_endpoints(bench):
+    store, measurements, sid, request = bench
+    original = _confirm_reading(measurements, sid, request)
+    next_request = measurements.request(sid, "voltage", "DC_voltage", "MID", "0")
+    with pytest.raises(DomainError, match="same circuit, probes"):
+        _confirm_reading(measurements, sid, next_request, supersedes=original["event_id"])
+    assert [event["event_id"] for event in store.current_measurements(sid, original["circuit_revision"])] == [original["event_id"]]
+
+
+def test_correction_replaces_only_current_record_in_same_context(bench):
+    store, measurements, sid, request = bench
+    original = _confirm_reading(measurements, sid, request)
+    next_request = measurements.request(sid, "voltage", "DC_voltage", "VIN", "0")
+    replacement = _confirm_reading(measurements, sid, next_request, "1.1 V", original["event_id"])
+    assert [event["event_id"] for event in store.current_measurements(sid, original["circuit_revision"])] == [replacement["event_id"]]
+    next_request = measurements.request(sid, "voltage", "DC_voltage", "VIN", "0")
+    with pytest.raises(DomainError, match="latest replacement"):
+        _confirm_reading(measurements, sid, next_request, "1.2 V", original["event_id"])

@@ -16,7 +16,7 @@ dev = ["pytest==9.0.2", "ruff==0.15.7"]
 ohmpath-bench = "ohmpath.__main__:main"
 
 [tool.setuptools.packages.find]
-where = ["services/bench/src"]
+where = ["services/bench/src", "services/pi/src"]
 
 [tool.setuptools.package-data]
 ohmpath = ["contract-schema.json"]

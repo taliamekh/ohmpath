@@ -59,5 +59,6 @@ def test_question_does_not_consume_pending_measurement(bench):
     result = client.post(root + "/voice/text", json={"text": "Why are we testing 2 volts?",
         "utterance_id": "question"}).json()
     assert result["route"] == "question"
+    assert result["question"] == "Why are we testing 2 volts?"
     assert result["result"]["source"] == "local_evidence_summary"
     assert client.get(root).json()["active_request"]["request_id"] == req["request_id"]

@@ -84,9 +84,11 @@ class SessionStore:
                 emit("session.recovered", {"reason": "Fresh setup and camera checks required."})
             self.transact(session["session_id"], pause)
 
-    def create(self, name: str = "Practice bench") -> dict:
+    def create(self, name: str = "Practice bench", mode: str = "mock") -> dict:
+        if mode not in ("mock", "supervised"):
+            raise DomainError("session_mode_invalid", "Choose a practice or manual supervised bench.", 422)
         sid = opaque_id()
-        state = {"session_id": sid, "name": name, "mode": "mock", "status": "active",
+        state = {"session_id": sid, "name": name, "mode": mode, "status": "active",
                  "revisions": {"circuit_revision": "circuit-1", "firmware_revision": None,
                                "calibration_revision": None}, "fixture": "divider",
                  "power_state": "unknown", "setup": {}, "active_request": None,
@@ -94,7 +96,7 @@ class SessionStore:
                  "connection_epoch": opaque_id(), "arming_epoch": opaque_id()}
         with self.lock, self.db:
             self.db.execute("INSERT INTO sessions VALUES (?, ?)", (sid, json.dumps(state)))
-            self._append(state, "session.created", {"mode": "mock"})
+            self._append(state, "session.created", {"mode": mode})
         return self.get(sid)
 
     def list_sessions(self) -> list[dict]:
@@ -116,6 +118,38 @@ class SessionStore:
                 (sid, after, min(limit, 500)),
             ).fetchall()
         return [json.loads(r[0]) for r in rows]
+
+    def recent_events(self, sid: str, limit: int = 100) -> list[dict]:
+        self.get(sid)
+        with self.lock:
+            rows = self.db.execute("SELECT body FROM events WHERE session_id=? ORDER BY sequence DESC LIMIT ?",
+                                   (sid, max(1, min(limit, 500)))).fetchall()
+        return [json.loads(row[0]) for row in reversed(rows)]
+
+    def circuit_evidence(self, sid: str, revision: str) -> str | None:
+        with self.lock:
+            row = self.db.execute("""SELECT event_id FROM events WHERE session_id=?
+                AND json_extract(body,'$.circuit_revision')=?
+                AND json_extract(body,'$.event_type') IN ('circuit.selected','circuit.import_accepted')
+                ORDER BY sequence DESC LIMIT 1""", (sid, revision)).fetchone()
+        return row[0] if row else None
+
+    def current_measurements(self, sid: str, revision: str) -> list[dict]:
+        """Latest numeric evidence by endpoints, excluding every superseded record."""
+        with self.lock:
+            rows = self.db.execute("""SELECT body FROM events e WHERE session_id=?
+                AND json_extract(body,'$.circuit_revision')=?
+                AND json_extract(body,'$.event_type')='measurement.confirmed'
+                AND NOT EXISTS (SELECT 1 FROM events replacement WHERE replacement.session_id=e.session_id
+                    AND json_extract(replacement.body,'$.supersedes_event_id')=e.event_id)
+                ORDER BY sequence DESC LIMIT 100""", (sid, revision)).fetchall()
+        latest = {}
+        for row in rows:
+            event = json.loads(row[0])
+            req = event["payload"]["request"]
+            key = (req["quantity"], req["red_node_id"], req["black_node_id"])
+            latest.setdefault(key, event)
+        return list(reversed(list(latest.values())))
 
     def _append(self, state, event_type, payload, source="bench", correlation_id=None,
                 supersedes_event_id=None):
