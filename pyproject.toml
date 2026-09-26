@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools==80.9.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ohmpath"
+version = "0.1.0"
+description = "Local evidence-led electronics bench assistant"
+requires-python = ">=3.12"
+dependencies = ["fastapi==0.135.2", "uvicorn==0.42.0", "pydantic==2.12.5", "jsonschema==4.26.0", "defusedxml==0.7.1", "httpx==0.28.1"]
+
+[project.optional-dependencies]
+dev = ["pytest==9.0.2", "ruff==0.15.7"]
+
+[project.scripts]
+ohmpath-bench = "ohmpath.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["services/bench/src"]
+
+[tool.setuptools.package-data]
+ohmpath = ["contract-schema.json"]
+
+[tool.pytest.ini_options]
+testpaths = ["services/bench/tests", "services/pi/tests"]
+pythonpath = ["services/bench/src", "services/pi/src"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py312"
