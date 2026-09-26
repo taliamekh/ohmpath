@@ -99,7 +99,13 @@ class Protocol:
                 self.process.kill()
 
 
-def restricted_command() -> list[str]:
+def restricted_command(*, bridge_mcp: bool = True) -> list[str]:
+    """Build strict app-server config for MCP proof or dynamic-only runtime.
+
+    The standalone proof retains its scoped MCP bridge. Production runtime
+    dispatches the same four operations through dynamic callbacks and must not
+    advertise a duplicate MCP catalog.
+    """
     cli = subprocess.run(["codex", "--version"], capture_output=True, text=True, timeout=5, check=True)
     if cli.stdout.strip() != PINNED_CLI_VERSION:
         raise ProofFailure("codex_version_mismatch")
@@ -120,18 +126,21 @@ def restricted_command() -> list[str]:
         "features.browser_use_external": "false",
         "web_search": '"disabled"',
         "default_permissions": '":read-only"',
-        "mcp_servers.ohmpath_bench.command": json.dumps(sys.executable),
-        "mcp_servers.ohmpath_bench.args": '["-m","ohmpath.ai.bridge"]',
-        "mcp_servers.ohmpath_bench.enabled": "true",
-        "mcp_servers.ohmpath_bench.required": "true",
-        "mcp_servers.ohmpath_bench.default_tools_approval_mode": '"auto"',
-        "mcp_servers.ohmpath_bench.enabled_tools": json.dumps(sorted(TOOLS)),
-        "mcp_servers.ohmpath_bench.env_vars": json.dumps([
-            "OHMPATH_MCP_BASE_URL", "OHMPATH_MCP_SESSION_ID", "OHMPATH_MCP_MODEL_TOKEN", "PYTHONPATH",
-        ]),
     }
+    if bridge_mcp:
+        settings.update({
+            "mcp_servers.ohmpath_bench.command": json.dumps(sys.executable),
+            "mcp_servers.ohmpath_bench.args": '["-m","ohmpath.ai.bridge"]',
+            "mcp_servers.ohmpath_bench.enabled": "true",
+            "mcp_servers.ohmpath_bench.required": "true",
+            "mcp_servers.ohmpath_bench.default_tools_approval_mode": '"auto"',
+            "mcp_servers.ohmpath_bench.enabled_tools": json.dumps(sorted(TOOLS)),
+            "mcp_servers.ohmpath_bench.env_vars": json.dumps([
+                "OHMPATH_MCP_BASE_URL", "OHMPATH_MCP_SESSION_ID", "OHMPATH_MCP_MODEL_TOKEN", "PYTHONPATH",
+            ]),
+        })
     for name in inherited:
-        if name == "ohmpath_bench":
+        if name == "ohmpath_bench" and bridge_mcp:
             raise ProofFailure("conflicting_inherited_mcp")
         settings[f"mcp_servers.{name}.enabled"] = "false"
     command = ["codex", "app-server", "--strict-config"]
@@ -140,7 +149,7 @@ def restricted_command() -> list[str]:
     return command
 
 
-def check_configuration(config: dict[str, Any]) -> None:
+def check_configuration(config: dict[str, Any], *, bridge_mcp: bool = True) -> None:
     features = config.get("features") or {}
     disabled = ("shell_tool", "unified_exec", "apps", "plugins", "remote_plugin",
                 "browser_use", "browser_use_external")
@@ -149,10 +158,11 @@ def check_configuration(config: dict[str, Any]) -> None:
     if (any(features.get(name) is not False for name in disabled)
             or config.get("web_search") != "disabled"
             or config.get("default_permissions") != ":read-only"
-            or enabled != {"ohmpath_bench"}
-            or servers["ohmpath_bench"].get("required") is not True
-            or servers["ohmpath_bench"].get("default_tools_approval_mode") != "auto"
-            or set(servers["ohmpath_bench"].get("enabled_tools") or []) != TOOLS):
+            or enabled != ({"ohmpath_bench"} if bridge_mcp else set())
+            or (bridge_mcp and (
+                servers["ohmpath_bench"].get("required") is not True
+                or servers["ohmpath_bench"].get("default_tools_approval_mode") != "auto"
+                or set(servers["ohmpath_bench"].get("enabled_tools") or []) != TOOLS))):
         raise ProofFailure("effective_config_not_restricted")
 
 
