@@ -1,6 +1,7 @@
 const { randomUUID } = require('node:crypto');
 const { dimensions, prepareReviewedImage } = require('./reviewed-image.cjs');
 const { preparePhotoUpload } = require('./photo-upload.cjs');
+const { prepareClipboardPhoto } = require('./photo-clipboard.cjs');
 
 const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 
@@ -30,6 +31,12 @@ function createPhotoImages(nativeImage) {
       // Store these freshly encoded pixels directly. A second JPEG encode could
       // increase the size again or unnecessarily lose detail.
       return { ...addPixels(prepared.bytes, name), original_width: prepared.originalWidth,
+        original_height: prepared.originalHeight, resized: prepared.resized };
+    },
+    paste(clipboard) {
+      if (images.size >= 8) throw new Error('Remove a selected image before adding another.');
+      const prepared = prepareClipboardPhoto(clipboard, nativeImage);
+      return { ...addPixels(prepared.bytes, 'Pasted image'), original_width: prepared.originalWidth,
         original_height: prepared.originalHeight, resized: prepared.resized };
     },
     capture(payload) {

@@ -9,12 +9,17 @@ const imageIds = [
   '10000000-0000-4000-8000-000000000001',
   '10000000-0000-4000-8000-000000000002',
   '10000000-0000-4000-8000-000000000003',
+  '10000000-0000-4000-8000-000000000004',
+  '10000000-0000-4000-8000-000000000005',
+  '10000000-0000-4000-8000-000000000006',
 ];
-const audit = { asks: [], cancels: [], releases: [], captures: [], choices: 0, statusChecks: 0, unexpected: [] };
+const audit = { asks: [], cancels: [], releases: [], captures: [], choices: 0, pastes: 0, statusChecks: 0, unexpected: [] };
 const piReplay = { connected: false, jpeg_base64: '', reason: '', connects: 0, disconnects: 0, frameCalls: 0, lastPort: null,
   failConnectOnce: false, failFrameOnce: false, failStatusOnce: false, frameMissingOnce: false };
 const jobs = new Map();
 let resolveLateAsk;
+let delayNextChoice = false;
+let resolveLateChoice;
 let delayNextCapture = false;
 let resolveLateCapture;
 let window;
@@ -54,7 +59,7 @@ function fixturePng(red) {
 
 function imageAt(index) {
   const id = imageIds[index];
-  return { image_id: id, name: `Replay circuit ${index ? 'B' : 'A'}.png`,
+  return { image_id: id, name: `Replay circuit ${String.fromCharCode(65 + index)}.png`,
     data_url: `data:image/png;base64,${fixturePng(index > 0).toString('base64')}`,
     width: 24, height: 16 };
 }
@@ -71,6 +76,11 @@ function jobFor(payload) {
 
 function handle(action, payload = {}) {
   if (action === 'health') return { service: 'Ohm Path replay', hardware: 'disabled', reasoning: 'subscription_on_request' };
+  if (action === 'elevenLabsStatus') return { connected: false, storage_status: 'not_connected',
+    generation_enabled: false, generation_tested: false, selected_voice_id: null,
+    subscription: null, voices: [], metadata_checked_at: null, spending_blocked: true };
+  if (action === 'turretStatus') return { enabled: false, connected: false,
+    motion_enabled: false, laser_enabled: false };
   if (action === 'sessions') return [];
   if (action === 'voiceStatus') return { provider: 'offline replay', status: 'not_installed', local_only: true, recording: false };
   if (action === 'enableCamera') return { allowed: true };
@@ -125,8 +135,18 @@ function handle(action, payload = {}) {
   }
   if (action === 'photoChooseImage') {
     const index = audit.choices++;
-    if (index > 1) return { cancelled: true };
-    return { image: imageAt(index) };
+    if (index > 2) return { cancelled: true };
+    const result = { image: imageAt(index) };
+    if (delayNextChoice) {
+      delayNextChoice = false;
+      return new Promise(resolve => { resolveLateChoice = () => { resolveLateChoice = undefined; resolve(result); }; });
+    }
+    return result;
+  }
+  if (action === 'photoPasteImage') {
+    // Explicit-click replay only. No OS clipboard access is available in this fixture.
+    const index = audit.pastes++;
+    return index < 3 ? { image: imageAt(index + 3) } : { cancelled: true };
   }
   if (action === 'photoReleaseImage') {
     audit.releases.push(payload.image_id);
@@ -164,7 +184,18 @@ function handle(action, payload = {}) {
     audit.cancels.push({ context_id: payload.context_id, turn_id: payload.turn_id ?? null });
     return { status: 'cancelled', context_id: payload.context_id };
   }
-  if (action === 'testAudit') return { ...audit, latePending: Boolean(resolveLateAsk), lateCapturePending: Boolean(resolveLateCapture), modelCalls: 0 };
+  if (action === 'testAudit') return { ...audit, latePending: Boolean(resolveLateAsk),
+    lateChoicePending: Boolean(resolveLateChoice), lateCapturePending: Boolean(resolveLateCapture), modelCalls: 0 };
+  if (action === 'testDelayNextChoice') {
+    if (delayNextChoice || resolveLateChoice) throw new Error('A replay file choice is already delayed.');
+    delayNextChoice = true;
+    return { armed: true };
+  }
+  if (action === 'testResolveLateChoice') {
+    if (!resolveLateChoice) throw new Error('No delayed replay file choice.');
+    resolveLateChoice();
+    return { released: true };
+  }
   if (action === 'testDelayNextCapture') {
     if (delayNextCapture || resolveLateCapture) throw new Error('A replay capture is already delayed.');
     delayNextCapture = true;

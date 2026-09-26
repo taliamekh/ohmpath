@@ -51,6 +51,8 @@ function niceName(value: string) {
 
 function App() {
   const [tab, setTab] = useState<Tab>("bench");
+  const [photoWorkspaceVisited, setPhotoWorkspaceVisited] = useState(false);
+  const previousTabRef = useRef<Tab>("bench");
   const [health, setHealth] = useState<AnyRecord | null>(null);
   const [sessions, setSessions] = useState<AnyRecord[]>([]);
   const [sessionId, setSessionId] = useState("");
@@ -765,6 +767,16 @@ function App() {
   }, []);
 
   useEffect(() => {
+    if (tab === "photo") setPhotoWorkspaceVisited(true);
+    else if (previousTabRef.current === "photo") {
+      setVisualCaption("");
+      setGuideExpression("neutral");
+      setActivity(current => current === "thinking" || current === "error" ? "idle" : current);
+    }
+    previousTabRef.current = tab;
+  }, [tab]);
+
+  useEffect(() => {
     snapshotGenerationRef.current += 1;
     if (tab !== "bench") {
       setCameraReview(false);
@@ -789,7 +801,7 @@ function App() {
         <div className="workspace-label">CHOOSE YOUR PATH</div>
         <nav className="side-nav journey-nav" aria-label="Workspace">
           {tabs.map((item) => (
-            <button className={`nav-item ${tab === item.id ? "selected" : ""}`} key={item.id} aria-current={tab === item.id ? "page" : undefined} onClick={() => { setTab(item.id); if (item.id !== "bench") { setCameraReview(false); setCameraReviewVisible(false); } }}>
+            <button className={`nav-item ${tab === item.id ? "selected" : ""}`} key={item.id} title={item.label} aria-current={tab === item.id ? "page" : undefined} onClick={() => { setTab(item.id); if (item.id !== "bench") { setCameraReview(false); setCameraReviewVisible(false); } }}>
               <span className="nav-icon">{item.icon}</span><span>{item.label}</span>
             </button>
           ))}
@@ -812,16 +824,15 @@ function App() {
         </header>
 
         <div className="scroll-area">
+          {photoWorkspaceVisited && <div hidden={tab !== "photo"}>
+            {showGuide && tab === "photo" && <aside className="photo-guide-strip panel" aria-label="Guide companion"><FrierenGuide activity={activity} expression={guideExpression} reducedMotion={reducedMotion} compact /><div><strong>Frieren <span>{activityLabel[activity]}</span></strong><p>{companionCaption}</p></div><button className="text-button" onClick={() => { setGuideExpression("happy"); setVisualCaption("Glad that helped. Let’s keep going."); }}>That worked ✓</button><button className="text-button" onClick={() => setShowGuide(false)} aria-label="Hide guide">×</button></aside>}
+            <PhotoHelpPage active={tab === "photo"} prefillQuestion={tab === "photo" ? investigatorPrefill : ""} onPrefillConsumed={() => setInvestigatorPrefill("")} onActivity={photoActivity} speechAvailable={false} />
+          </div>}
           {tab === "devices" ? (
             <DevicesPage sid={sessionId} paused={session?.status === "paused"} onStop={stopSession} />
           ) : tab === "troubleshoot" ? (
             <TroubleshootPage sessionId={sessionId} circuitRevision={session?.revisions?.circuit_revision ?? ""} contextEpoch={session?.arming_epoch ?? ""} prefillQuestion={investigatorPrefill} onPrefillConsumed={() => setInvestigatorPrefill("")} localSpeechAvailable={localSpeechEnabled && Boolean(localVoice) && session?.status === "active"} onReadAloud={speakLocalText} onStopSpeaking={cancelLocalSpeech} />
-          ) : tab === "photo" ? (
-            <>
-              {showGuide && <aside className="photo-guide-strip panel" aria-label="Guide companion"><FrierenGuide activity={activity} expression={guideExpression} reducedMotion={reducedMotion} compact /><div><strong>Frieren <span>{activityLabel[activity]}</span></strong><p>{companionCaption}</p></div><button className="text-button" onClick={() => { setGuideExpression("happy"); setVisualCaption("Glad that helped. Let’s keep going."); }}>That worked ✓</button><button className="text-button" onClick={() => setShowGuide(false)} aria-label="Hide guide">×</button></aside>}
-              <PhotoHelpPage prefillQuestion={investigatorPrefill} onPrefillConsumed={() => setInvestigatorPrefill("")} onActivity={photoActivity} speechAvailable={false} />
-            </>
-          ) : tab === "settings" ? (
+          ) : tab === "photo" ? null : tab === "settings" ? (
             <SettingsPage reducedMotion={reducedMotion} onReducedMotion={setReducedMotion} showGuide={showGuide} onShowGuide={setShowGuide} subtitlesEnabled={subtitlesEnabled} onSubtitles={changeSubtitles} localSpeechEnabled={localSpeechEnabled} onLocalSpeech={toggleLocalSpeech} localVoice={localVoice} voiceStatus={voiceStatus} reasoningStatus={health?.reasoning} companionEnabled={companionEnabled} companionBusy={companionBusy} companionError={companionError} onCompanion={setFloatingCompanion} />
           ) : tab === "bench" ? (
             <>

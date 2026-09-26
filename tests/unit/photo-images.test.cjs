@@ -42,3 +42,24 @@ test('uploads retain only the first sanitized encoding without re-encoding it', 
   assert.equal(image.original_width, 1);
   assert.equal(store.selected([image.image_id])[0].image_base64, png.toString('base64'));
 });
+
+test('pasted pixels use the same ownership and capacity guards without reading a full clipboard store', () => {
+  const native = { ...decoder, createFromBitmap: () => ({ isEmpty: () => false,
+    getSize: () => ({ width: 1, height: 1 }), toPNG: () => png }) };
+  let reads = 0;
+  const clipboard = { readImage() { reads += 1; return { isEmpty: () => false,
+    getSize: () => ({ width: 1, height: 1 }), toBitmap: () => Buffer.alloc(4) }; } };
+  const store = createPhotoImages(native);
+  const pasted = store.paste(clipboard);
+  assert.equal(reads, 1);
+  assert.equal(pasted.name, 'Pasted image');
+  assert.equal(pasted.original_width, 1);
+  assert.equal(store.selected([pasted.image_id])[0].image_base64, png.toString('base64'));
+  for (let index = 1; index < 8; index++) store.add(png, 'fixture.png');
+  assert.throws(() => store.paste(clipboard), /Remove/);
+  assert.equal(reads, 1);
+  store.release(pasted.image_id);
+  assert.throws(() => store.selected([pasted.image_id]), /no longer/);
+  store.paste(clipboard);
+  assert.equal(reads, 2);
+});

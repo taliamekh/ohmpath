@@ -121,6 +121,18 @@ test('camera focus keeps a synthetic preview mounted through snapshot and review
     await expect(camera).not.toHaveClass(/is-fallback-focus/);
     expect(await page.evaluate(() => document.body.style.overflow)).toBe(previousOverflow);
     expect(await page.locator('.sidebar').evaluate(sidebar => sidebar.inert)).toBe(false);
+
+    await review.getByLabel('What would you like help with?').fill('late request');
+    await review.getByRole('button', { name: 'Ask about these images' }).click();
+    await expect.poll(async () => (await audit()).latePending).toBe(true);
+    const lateContext = (await audit()).asks.at(-1).context_id;
+    await page.getByRole('button', { name: 'Settings', exact: false }).first().click();
+    await expect.poll(async () => (await audit()).cancels.some((item: { context_id: string }) =>
+      item.context_id === lateContext)).toBe(true);
+    await page.evaluate(() => (window as any).ohmpath.request('testResolveLateAsk'));
+    await page.getByRole('button', { name: 'Camera help', exact: false }).first().click();
+    await expect(page.locator('.bench-guide-card').getByRole('img', { name: 'Frieren · thinking' })).toHaveCount(0);
+    await expect(page.locator('.bench-guide-card').getByRole('img', { name: 'Frieren · neutral' })).toBeVisible();
     expect((await audit()).unexpected).toEqual([]);
     await page.close();
     await expect.poll(() => desktop.exitCode, { timeout: 8000 }).toBe(0);
