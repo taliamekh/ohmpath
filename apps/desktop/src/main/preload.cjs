@@ -2,6 +2,18 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('ohmpath', Object.freeze({
   request: (action, payload = {}) => ipcRenderer.invoke('ohmpath:request', action, payload),
+  onSpeechEvent: (callback) => {
+    if (typeof callback !== 'function') throw new TypeError('A callback is required.');
+    const listener = (_event, value) => callback(value);
+    ipcRenderer.on('ohmpath:speech', listener);
+    return () => ipcRenderer.removeListener('ohmpath:speech', listener);
+  },
+  onPhonePhoto: (callback) => {
+    if (typeof callback !== 'function') throw new TypeError('A callback is required.');
+    const listener = () => callback();
+    ipcRenderer.on('ohmpath:phone-photo', listener);
+    return () => ipcRenderer.removeListener('ohmpath:phone-photo', listener);
+  },
   onServiceStopped: (callback) => {
     if (typeof callback !== 'function') throw new TypeError('A callback is required.');
     const listener = () => callback();
