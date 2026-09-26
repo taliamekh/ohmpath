@@ -23,6 +23,7 @@ def main():
         [str(python), "-m", "pytest", "-q"],
         [pnpm, "run", "build"],
         [pnpm, "run", "test:desktop-unit"],
+        [pnpm, "run", "test:image-metadata"],
         [pnpm, "run", "test:desktop"],
     ]
     for command in checks:

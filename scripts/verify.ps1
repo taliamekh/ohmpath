@@ -11,6 +11,8 @@ else { $packageTool = Join-Path $env:USERPROFILE '.cache/codex-runtimes/codex-pr
 if ($LASTEXITCODE -ne 0) { throw 'Desktop build failed.' }
 & $packageTool run test:desktop-unit
 if ($LASTEXITCODE -ne 0) { throw 'Desktop bridge verification failed.' }
+& $packageTool run test:image-metadata
+if ($LASTEXITCODE -ne 0) { throw 'Native image metadata verification failed.' }
 & $packageTool run test:desktop
 if ($LASTEXITCODE -ne 0) { throw 'Desktop walkthrough failed.' }
 Write-Host 'Automated verification passed. Physical verification is still pending.'
