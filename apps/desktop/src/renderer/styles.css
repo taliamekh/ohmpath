@@ -552,6 +552,10 @@ body:has(.companion-window) { min-width: 280px; }
 .calibration-result-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 8px; margin-top: 8px; }
 .calibration-result-grid > div { min-width: 0; padding: 8px; border: 1px solid #213840; border-radius: 4px; }
 .calibration-result-grid pre { max-height: 140px; overflow: auto; margin: 6px 0 0; color: #a9c4c1; font: 8px/1.4 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+.calibration-result-grid p, .calibration-result-grid li, .calibration-result-grid small { color: #a9c4c1; font-size: 9px; line-height: 1.5; }
+.calibration-result-grid .calibration-metric { margin: 10px 0 5px; color: #bce5dc; font: 18px var(--mono); }
+.calibration-matrix { width: 100%; margin-top: 10px; border-collapse: collapse; color: #b4ceca; font: 9px var(--mono); }
+.calibration-matrix th, .calibration-matrix td { padding: 5px 4px; text-align: left; font-weight: 400; border-bottom: 1px solid #213840; }
 .calibration-result > p { margin: 9px 0 0; color: #889c9e; font-size: 8px; }
 .calibration-result > p strong { color: #d5b879; font-weight: 500; }
 .device-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 7px; text-align: center; padding: 14px; }
