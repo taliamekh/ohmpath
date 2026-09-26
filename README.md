@@ -56,6 +56,8 @@ Setup uses the pinned dependency locks and pnpm 11.25.0. `python scripts/setup.p
 
 Start in **Live help**, or choose **Photo help** to upload a circuit photo or diagram without a camera or turret. Ask explicitly to send the selected images through the signed-in subscription. Camera previews start only after connection; analysis uses the snapshot you choose, not continuous unattended capture.
 
+In Live help, **Track a point locally** lets you select a textured detail in the chosen camera view. A ring follows that image feature while it remains visible; an unclear or lost match clears the ring and requires selection again. These frames stay on the computer. This is image tracking, not automatic component identification, an electrical measurement, or calibrated turret aiming. **Ask about this view** separately sends a snapshot for circuit reasoning.
+
 In Photo help, **Send a photo from your phone** creates a 15-minute QR link on a selected private network. Keep both devices on trusted Wi-Fi; review the image on the phone before Send and on the laptop before Ask. This local HTTP transfer is unencrypted. USB live video separately uses Camo Studio and Camo Camera on the iPhone. Selecting Camo alone does not establish that its source is the iPhone.
 
 **Start recording / Finish recording** transcribes a short question locally into the editable draft. It never asks automatically. In Settings, optionally enable ElevenLabs spoken answers for the current launch; **Listen** sends that answer text to ElevenLabs and uses credits. The launch limit is 1,000 text characters, speech starts off after relaunch, and Stop speaking cancels pending playback. The currently selected stock voice is not an exact anime performance.

@@ -36,6 +36,24 @@ At 23:05 UTC, the integrated renderer build, generated-contract check and full P
 
 The user now explicitly authorizes progressively pushing reviewed, named feature branches and updating main when appropriate. The GitHub repository is public and authenticated with push permission. Existing unpublished local history contains private account/progress notes, so it will remain local. Separate public branches will carry reviewed source and sanitized technical documentation; no force-push, account notes, credentials, recordings or private runtime artifacts are included.
 
+## Evening work window checkpoint
+
+The current 90-minute continuation window started at **2026-09-26 23:04:14 UTC** and stops starting work at **2026-09-27 00:34:14 UTC** (8:34 p.m. Toronto). The supported heartbeat is configured for this deadline. No power or display commands are authorized or used.
+
+- The native title bar and renderer strip now use solid dark green. Fullscreen content leaves space beneath the native caption controls. A reviewed generated countryside continuation replaces the disconnected main-panel scenery; the original artwork is preserved. Build and synthetic fullscreen/layout checks pass. Native control overlap still needs an actual window check.
+- Installed KiCad 10.0.6 exported the reviewed passive-source schematic; ngspice 47 simulated the imported circuit at **3.300000 V**. Golden divider and loaded-divider fixtures also produced the expected voltages. These are actual software-tool runs, not electrical measurements. Export output is bounded while the process runs.
+- Opt-in local OpenCV point tracking is implemented for the selected camera view. It follows an explicitly selected textured feature, clears lost or invalid results, and separates image position from electrical or aiming evidence. Frames stay local; the separate Ask action sends a selected snapshot to the existing reasoning route. Backend/API review passed; 15 synthetic vision tests passed, and the combined vision/circuit selection passed 46 tests. The production Electron overlay test passed with synthetic video and the real local OpenCV service, including transport failure, reselection, fullscreen mapping, and shutdown cleanup.
+- The animation diagnostic now saves same-frame pixel evidence on any mismatch. An accelerated 100-readback/nine-fullscreen-cycle test passed twice, and a one-minute real-time diagnostic passed. These do not replace the previously failed 30-minute run; a fresh full-duration synthetic run is pending after the complete desktop suite.
+- Computer Use returned a physical Escape stop during the attempted laptop-camera check. Screen control stopped immediately. The subsequent heartbeat continues source work and app-internal synthetic tests only; real laptop-camera proof remains pending. No private camera frame was published.
+- Reviewed history is published incrementally through the authenticated GitHub connector. `codex/bench-and-pi-services` and `codex/desktop-workbench` are published; `codex/photo-help-and-character` is in progress. Main remains unchanged while final integration is under review. Original local history and private progress/account ledgers remain local.
+- No further voice generation, usage reset, hardware operation, or spending occurred during this continuation.
+
+At 23:39 UTC, the full Python suite passed **417 tests**, with two optional OCR checks skipped. Lint and generated contracts passed. The full desktop run passed **20 of 21** tests; the single failure was a stale exact request list in the renderer recovery test after adding a silent ElevenLabs status read. Correcting that expected list made the targeted recovery rerun pass. A fresh 30-minute synthetic animation diagnostic began at approximately **23:37:44 UTC** with same-frame mismatch capture. No additional Electron test window is opened while it runs.
+
+The local vision integration is committed as `c81972b`. A CI-only timing race in an older investigation cancellation test is fixed with a bounded worker join; the focused test passed ten times and its full file passed ten tests. The public photo-help branch's Linux workflow passed. The countryside branch is published, and phone/voice publication is in progress. Main remains unchanged.
+
+Next: finish the new 30-minute synthetic animation diagnostic, publish the integrated verification branch, review final CI/privacy, and consider main when the reviewed result is ready.
+
 ## Next tasks and open evidence
 
 Publish the reviewed software in coherent branches after the privacy review. Continue investigating the long animation mismatch with accelerated fullscreen phase sampling and retained pixel evidence. Verify actual iPhone photo transfer/video when Camo Camera is ready. No additional synthesis is necessary for transport verification. Voice identity/quality remains unverified unless heard and assessed.
