@@ -110,6 +110,10 @@ class AudioInput(VoiceInput):
     wav_base64: str = Field(min_length=1, max_length=2_000_000)
 
 
+class PhotoAudioInput(Input):
+    wav_base64: str = Field(min_length=1, max_length=2_000_000)
+
+
 class AimInput(Input):
     target_x: float = Field(ge=0, le=640, allow_inf_nan=False)
     target_y: float = Field(ge=0, le=480, allow_inf_nan=False)
@@ -243,7 +247,7 @@ def create_app(data_dir: Path, user_token: str, model_token: str | None = None) 
         body = bytearray()
         async for chunk in request.stream():
             body.extend(chunk)
-            cap = 8_200_000 if request.url.path == "/v1/photo-help/investigate" else 6_800_000 if request.url.path.endswith("/imports") else 2_800_000 if request.url.path.endswith(("/candidates/ocr", "/investigate/image")) else 2_100_000 if request.url.path.endswith("/voice/transcribe") else 65536
+            cap = 8_200_000 if request.url.path == "/v1/photo-help/investigate" else 6_800_000 if request.url.path.endswith("/imports") else 2_800_000 if request.url.path.endswith(("/candidates/ocr", "/investigate/image")) else 2_100_000 if request.url.path.endswith(("/voice/transcribe", "/voice/transcribe-question")) else 65536
             if len(body) > cap:
                 return JSONResponse(status_code=413, content={"error": "request_too_large"})
         request._body = bytes(body)
@@ -530,6 +534,17 @@ def create_app(data_dir: Path, user_token: str, model_token: str | None = None) 
     @app.get("/v1/voice/status", dependencies=[Depends(user_scope)])
     def voice_status():
         return speech.status()
+
+    @app.post("/v1/voice/transcribe-question", dependencies=[Depends(user_scope)])
+    def transcribe_photo_question(body: PhotoAudioInput):
+        # A photo question is a draft. It cannot enter the measurement ledger or
+        # start an investigator merely because recognition returned some text.
+        try:
+            audio = base64.b64decode(body.wav_base64, validate=True)
+        except (binascii.Error, ValueError):
+            raise DomainError("speech_audio_invalid", "The audio payload is invalid.", 422) from None
+        transcript = speech.transcribe(audio)
+        return {"text": transcript["text"], "status": transcript["status"], "local_only": True}
 
     @app.get("/v1/sessions/{sid}/assembly", dependencies=[Depends(user_scope)])
     def assembly(sid: str):
