@@ -4,7 +4,7 @@
 
 Use **Ohm Path** in the interface and prose; use `ohmpath` for package names and identifiers where spaces are unsuitable. Do not rename the existing local workspace or historical files just to remove the old name.
 
-Keep application UI in `apps/desktop`, laptop services in `services/bench`, Pi code in `services/pi`, shared schemas in `packages/contracts`, curated hardware in `hardware`, sanitized fixtures in `fixtures`, and documentation in `docs`. These implementation folders are planned, not empty scaffolding that needs creating now. See the [specification](docs/hackathon-build/spec.md#planned-file-structure).
+Keep application UI in `apps/desktop`, laptop services in `services/bench`, Pi code in `services/pi`, shared schemas in `packages/contracts`, curated hardware in `hardware`, sanitized fixtures in `fixtures`, and documentation in `docs`. See the [specification](docs/hackathon-build/spec.md#planned-file-structure) and current README for implemented capabilities and remaining verification.
 
 Use descriptive lowercase hyphenated documentation filenames. New CAD exports should have a readable part name and revision, with one manifest naming the current assembly. Keep source designs separate from exports, pictures, and manufacturing files. Do not scatter screenshots, temporary scripts, or alternative "final" versions in the root.
 

@@ -2,7 +2,7 @@
 
 A live electronics bench assistant that sees the circuit, listens to the person, tests explanations against simulation and real measurements, and shows exactly where to look next.
 
-**Status: build plan documented; application implementation has not started.** Existing mechanical designs and tool-installation checks are inputs, not proof of a working integrated product. Planning baseline: September 26, 2026.
+**Status: runnable Windows desktop development build.** Local circuit simulation, explicit measurement readback, local speech recognition, evidence history, camera selection, assembly/firmware guidance, and a simulated two-axis pointer are implemented. Hardware acceptance and the complete product checklist remain pending. See the [handoff report](docs/development/morning-report.md) for launch steps, actual verification and limitations.
 
 Repository: [taliamekh/ohmpath](https://github.com/taliamekh/ohmpath).
 
@@ -35,4 +35,31 @@ The first companion is Frieren, with a character registry designed for three gui
 
 The project was previously called Benchmate. Existing `outputs/` files remain unchanged locally; the plans above supersede their software architecture and scope restrictions. They are not automatically published because that folder mixes private notes, generated files, and earlier event material. Approved mechanical sources and clean test fixtures will be curated into the organized project during implementation.
 
-There are intentionally no install or run instructions yet: no executable Ohm Path application has been delivered in this planning step.
+## Run the development build
+
+On this prepared Windows checkout, double-click `scripts/start.cmd`. The desktop starts its own private local service and stores session evidence in local application data. Closing the desktop closes that service. No camera or microphone opens until explicitly selected, and no physical actuator driver is enabled. `scripts/start.cmd` does not require changing PowerShell execution policy.
+
+For a fresh checkout, use Python 3.12+, Node.js 22+, and pnpm 11, then run:
+
+```powershell
+python scripts/setup.py
+./scripts/start.cmd
+```
+
+Setup uses the pinned dependency locks and pnpm 11.25.0. `python scripts/setup.py --check` checks the prepared files without installing. The alternate `./scripts/setup.ps1 -WithSpeech` also installs the free local whisper.cpp worker and English speech model where local PowerShell policy permits; the application does not override that policy. ngspice is required for actual local solves; KiCad 10 is required for schematic export. Existing Windows per-user installations are detected. Optional `OHMPATH_NGSPICE` names a reviewed executable for standalone service use; the KiCad adapter currently pins the reviewed per-user KiCad 10 installation.
+
+Create a practice bench, choose a fixture, and run the local solve. Review the declared setup before starting a measurement request. Enter a signed value with units, check its complete readback and explicitly confirm it. Practice inputs remain labeled simulated user input, distinct from physical measurements.
+
+Run `.venv/Scripts/python.exe scripts/verify.py` for generated-contract checks, lint, Python tests, the desktop build, bridge tests and an automated Electron walkthrough. It uses a synthetic camera and performs no physical test. `scripts/verify.ps1` is also available where local PowerShell policy permits. See the [Pi source deployment bundle](docs/development/pi-deployment.md) and [controller commands](docs/development/pi-controller-handoff.md) for the separately packaged Pi service. No Pi installation, SSH connection, flashing or motor operation has been performed.
+
+The subscription investigator requires the existing signed-in Codex CLI version recorded in [the adapter handoff](docs/development/codex-adapter-handoff.md), access to the configured Astra model, and sufficient subscription allowance. It starts only on request, checks that access, and fails closed. It does not switch to API-key billing. Local speech output is an explicit system-voice preview; ElevenLabs and approved character assets still need configuration and review.
+
+## Available tools in the interface
+
+- **Bench:** practice or manual supervised sessions, reviewed KiCad import, actual local operating-point simulation, signed/unit-aware readings, explicit readback and confirmation, corrections, fault comparisons, and local report export. Manual confirmation records what the user reports; it does not verify the instrument.
+- **Troubleshoot:** ordered logical assembly guidance, supplied firmware-log analysis, and the subscription investigator. An optional image is sent only after selection and confirmation; the local temporary copy is removed after the turn. The investigator cannot confirm measurements or operate devices.
+- **Circuit lab:** bounded RC transient and diode sweep plots from actual ngspice. These are independent educational templates, not imported-circuit diagnoses or physical results.
+- **Devices:** an explicitly selected local overview camera, optional authenticated Pi camera preview through an already prepared SSH tunnel, offline yaw/pitch calibration candidates, and a synthetic aiming animation. Both actual camera feeds and physical calibration remain unverified.
+- **Settings:** optional local system speech, reduced animation, and a separate floating companion. Character artwork and voices remain labeled placeholders.
+
+Meter-image OCR is optional and currently unavailable on this machine; typed and voice candidates still require the same confirmation. The full requirements in `docs/hackathon-build/` remain in scope even where this development build is incomplete.
