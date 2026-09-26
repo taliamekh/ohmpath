@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import App from "./App";
 import Companion from "./Companion";
 import "./styles.css";
+import "./journey-theme.css";
 
 createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
