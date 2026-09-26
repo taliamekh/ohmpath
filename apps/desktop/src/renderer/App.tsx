@@ -1,19 +1,21 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import DevicesPage from "./DevicesPage";
 import TroubleshootPage from "./TroubleshootPage";
-import CircuitLabPage from "./CircuitLabPage";
+import PhotoHelpPage, { type PhotoHelpImage } from "./PhotoHelpPage";
+import CameraWorkspace, { type CameraCapture } from "./CameraWorkspace";
+import FrierenGuide, { type GuideExpression } from "./FrierenGuide";
+import TurretSettings from "./TurretSettings";
 import ElevenLabsSettings from "./ElevenLabsSettings";
 
 type AnyRecord = Record<string, any>;
-type Tab = "bench" | "troubleshoot" | "laboratory" | "devices" | "settings";
+type Tab = "bench" | "troubleshoot" | "photo" | "devices" | "settings";
 type PowerState = "unknown" | "on_current_limited" | "off_verified";
 type GuideActivity = "idle" | "listening" | "thinking" | "speaking" | "paused" | "error";
 type Capture = { stream: MediaStream; context: AudioContext; source: MediaStreamAudioSourceNode; processor: ScriptProcessorNode; chunks: Float32Array[]; startedAt: number; timer: number; generation: number; sid: string };
 
 const tabs: { id: Tab; label: string; icon: string }[] = [
-  { id: "bench", label: "Bench", icon: "⌘" },
-  { id: "troubleshoot", label: "Troubleshoot", icon: "⌁" },
-  { id: "laboratory", label: "Circuit lab", icon: "∿" },
+  { id: "bench", label: "Camera help", icon: "⌘" },
+  { id: "photo", label: "Photo help", icon: "▧" },
   { id: "devices", label: "Devices", icon: "⌑" },
   { id: "settings", label: "Settings", icon: "⚙" },
 ];
@@ -80,6 +82,11 @@ function App() {
   const [correctionEvent, setCorrectionEvent] = useState("");
   const [readbackAcknowledged, setReadbackAcknowledged] = useState(false);
   const [activity, setActivity] = useState<GuideActivity>("idle");
+  const [guideExpression, setGuideExpression] = useState<GuideExpression>("neutral");
+  const [visualCaption, setVisualCaption] = useState("");
+  const [photoCapture, setPhotoCapture] = useState<PhotoHelpImage>();
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [visualPaused, setVisualPaused] = useState(false);
   const [voiceStatus, setVoiceStatus] = useState<AnyRecord | null>(null);
   const [voiceState, setVoiceState] = useState<"idle" | "requesting" | "recording" | "transcribing">("idle");
   const [recordingSeconds, setRecordingSeconds] = useState(0);
@@ -177,6 +184,7 @@ function App() {
   useEffect(() => {
     const unsubscribe = window.ohmpath?.onServiceStopped?.(() => {
       cancelVoiceActivity();
+      setVisualPaused(true);
       sessionStatusRef.current = "unavailable";
       sessionIdRef.current = "";
       setHealth(null);
@@ -233,28 +241,28 @@ function App() {
   const confirmation = session?.confirmation;
   const companionCaption = useMemo(() => {
     let text = "";
-    if (readbackAcknowledged && confirmation?.readback_text) text = confirmation.readback_text;
+    if (visualCaption) text = visualCaption;
+    else if (readbackAcknowledged && confirmation?.readback_text) text = confirmation.readback_text;
     else if (activity === "paused") text = "Session paused. No physical output is enabled.";
     else if (activity === "error") text = error || "A local operation needs attention.";
     else if (activity === "listening") text = "Microphone active for push-to-talk.";
     else if (activity === "thinking") text = "Request in progress.";
     else if (activity === "speaking") text = "Local read-aloud in progress.";
     else if (voiceState === "transcribing") text = "Transcribing with the local speech model.";
-    else if (voiceStatus && ["ready", "installed"].includes(voiceStatus.status)) text = "Local speech model available. Microphone off.";
-    else text = "No active guide message.";
+    else text = "Show me a circuit photo or diagram, and tell me what you’re trying to do.";
     return text.slice(0, 500);
-  }, [readbackAcknowledged, confirmation?.readback_text, activity, error, voiceState, voiceStatus]);
+  }, [visualCaption, readbackAcknowledged, confirmation?.readback_text, activity, error, voiceState, voiceStatus]);
 
   useEffect(() => {
     if (!companionEnabled) { lastCompanionPayloadRef.current = ""; return; }
-    const state = { activity, caption: companionCaption, reducedMotion };
+    const state = { activity, expression: guideExpression, caption: companionCaption, reducedMotion };
     const serialized = JSON.stringify(state);
     if (serialized === lastCompanionPayloadRef.current) return;
     lastCompanionPayloadRef.current = serialized;
     request("updateCompanion", state).catch((problem) => {
       setCompanionError(problem instanceof Error ? problem.message : "Could not update the desktop companion.");
     });
-  }, [companionEnabled, activity, companionCaption, reducedMotion]);
+  }, [companionEnabled, activity, guideExpression, companionCaption, reducedMotion]);
   const confirmedEvents = events.filter((event) => event.event_type === "measurement.confirmed");
   const supersededEventIds = new Set(events.map((event) => event.supersedes_event_id).filter((eventId) => typeof eventId === "string"));
   const correctionContextHash = activeRequest && confirmation?.request_id === activeRequest.request_id
@@ -283,8 +291,8 @@ function App() {
     && Object.keys(checks).every((key) => session?.setup?.[key] === checks[key])
     && Object.keys(session?.setup ?? {}).every((key) => checks[key] === session?.setup?.[key]);
   const activityLabel: Record<GuideActivity, string> = {
-    idle: "Guide idle", listening: "Listening", thinking: "Checking locally", speaking: "Speaking",
-    paused: "Guide paused", error: "Connection issue",
+    idle: "Ready when you are", listening: "Listening", thinking: "Looking into it", speaking: "Speaking",
+    paused: "Guide paused", error: "Let’s try another approach",
   };
   const isManualSession = session?.mode === "supervised";
   const graphTitle = graph?.title ?? graph?.name ?? (graph?.circuit_id === "loaded_divider" ? "Loaded divider" : graph?.circuit_id === "divider" ? "Resistor divider" : graph?.circuit_id ? niceName(String(graph.circuit_id)) : "Circuit graph");
@@ -384,6 +392,7 @@ function App() {
   }
 
   function useProposedTest(test: AnyRecord) {
+    setAdvancedOpen(true);
     setQuantity("voltage");
     setMeterMode("DC_voltage");
     setRedNode(test.red_node_id);
@@ -471,6 +480,7 @@ function App() {
   }
 
   async function pauseSession() {
+    setVisualPaused(true);
     cancelVoiceActivity();
     await run("pause", async () => {
       await request("pause", { sid: sessionId });
@@ -481,6 +491,7 @@ function App() {
 
   async function stopSession() {
     if (!sessionId) return;
+    setVisualPaused(true);
     cancelVoiceActivity();
     await run("stop", async () => {
       await request("stop", { sid: sessionId });
@@ -717,6 +728,19 @@ function App() {
     setMeterMode(value === "voltage" ? "DC_voltage" : value);
   }
 
+  async function useCameraSnapshot(capture: CameraCapture) {
+    const result = await request<{ image: PhotoHelpImage }>("photoImportCapture", capture);
+    setPhotoCapture(result.image);
+    setVisualCaption("Your snapshot is ready. Tell me what you would like to check.");
+    setTab("photo");
+  }
+
+  const photoActivity = useCallback((next: "idle" | "thinking" | "error", caption?: string) => {
+    setActivity(next);
+    setGuideExpression(next === "thinking" ? "thinking" : next === "error" ? "stumped" : "neutral");
+    setVisualCaption(caption || "");
+  }, []);
+
   return (
     <div className={`app-shell${reducedMotion ? " reduce-motion" : ""}`}>
       <aside className="sidebar">
@@ -724,7 +748,7 @@ function App() {
           <div className="brand-mark"><span>Ω</span><i /></div>
           <div><strong>Ohm Path</strong><small>LOCAL CIRCUIT WORKSPACE</small></div>
         </div>
-        <div className="workspace-label">WORKSPACE <span>DEMO</span></div>
+        <div className="workspace-label">YOUR WORKSPACE</div>
         <nav className="side-nav" aria-label="Workspace">
           {tabs.map((item) => (
             <button className={`nav-item ${tab === item.id ? "selected" : ""}`} key={item.id} onClick={() => setTab(item.id)}>
@@ -743,9 +767,9 @@ function App() {
 
       <main className="main-shell">
         <header className="topbar">
-          <div className="breadcrumbs"><span>Ohm Path</span><b>/</b><strong>{niceName(tab)}</strong></div>
+          <div className="breadcrumbs"><span>Ohm Path</span><b>/</b><strong>{tabs.find(item => item.id === tab)?.label ?? "Circuit tools"}</strong></div>
           <div className="topbar-right">
-            <span className={`practice-pill ${isManualSession ? "manual-mode-pill" : ""}`}><i /> {isManualSession ? "MANUAL · USER-REPORTED" : "PRACTICE ONLY"}</span>
+            <span className="practice-pill"><i /> HARDWARE OFF</span>
             <button className="avatar-button" title="Guide settings" onClick={() => setShowGuide((visible) => !visible)}>G</button>
           </div>
         </header>
@@ -755,19 +779,22 @@ function App() {
             <DevicesPage sid={sessionId} paused={session?.status === "paused"} onStop={stopSession} />
           ) : tab === "troubleshoot" ? (
             <TroubleshootPage sessionId={sessionId} circuitRevision={session?.revisions?.circuit_revision ?? ""} contextEpoch={session?.arming_epoch ?? ""} prefillQuestion={investigatorPrefill} onPrefillConsumed={() => setInvestigatorPrefill("")} localSpeechAvailable={localSpeechEnabled && Boolean(localVoice) && session?.status === "active"} onReadAloud={speakLocalText} onStopSpeaking={cancelLocalSpeech} />
-          ) : tab === "laboratory" ? (
-            <CircuitLabPage sid={sessionId} />
+          ) : tab === "photo" ? (
+            <>
+              {showGuide && <aside className="photo-guide-strip panel" aria-label="Guide companion"><FrierenGuide activity={activity} expression={guideExpression} reducedMotion={reducedMotion} compact /><div><strong>Frieren <span>{activityLabel[activity]}</span></strong><p>{companionCaption}</p></div><button className="text-button" onClick={() => { setGuideExpression("happy"); setVisualCaption("Glad that helped. Let’s keep going."); }}>That worked ✓</button><button className="text-button" onClick={() => setShowGuide(false)} aria-label="Hide guide">×</button></aside>}
+              <PhotoHelpPage initialCapture={photoCapture} onCaptureConsumed={() => setPhotoCapture(undefined)} prefillQuestion={investigatorPrefill} onPrefillConsumed={() => setInvestigatorPrefill("")} onActivity={photoActivity} speechAvailable={false} />
+            </>
           ) : tab === "settings" ? (
             <SettingsPage reducedMotion={reducedMotion} onReducedMotion={setReducedMotion} showGuide={showGuide} onShowGuide={setShowGuide} localSpeechEnabled={localSpeechEnabled} onLocalSpeech={toggleLocalSpeech} localVoice={localVoice} voiceStatus={voiceStatus} reasoningStatus={health?.reasoning} companionEnabled={companionEnabled} companionBusy={companionBusy} companionError={companionError} onCompanion={setFloatingCompanion} />
           ) : tab === "bench" ? (
             <>
               <section className="page-heading">
                 <div>
-                  <div className="eyebrow">YOUR ELECTRONICS WORKSPACE</div>
-                  <h1>{isManualSession ? "Manual bench" : "Practice bench"} <span className="heading-spark">✳</span></h1>
-                  <p>{isManualSession ? "Enter readings from your own display. Each confirmed value remains user-reported and is not instrument verified." : "Explore a known circuit, compare a reading, and keep every result tied to its source."}</p>
+                  <div className="eyebrow">SEE IT. UNDERSTAND IT. FIX IT.</div>
+                  <h1>Let’s look at your circuit <span className="heading-spark">✳</span></h1>
+                  <p>Connect a camera, choose a view, and ask for help. Or start with a photo.</p>
                 </div>
-                <div className="session-picker">
+                <details className="session-picker"><summary>Saved bench sessions</summary><div>
                   <label htmlFor="session-select">SESSION</label>
                   <select id="session-select" value={sessionId} onChange={(event) => run("session", () => loadSession(event.target.value))}>
                     <option value="">Choose a bench…</option>
@@ -777,15 +804,21 @@ function App() {
                   <small className="report-export-note">Evidence summary only · excludes raw audio, images, firmware logs, and account details.</small>
                   <button className="text-button new-session-toggle" onClick={() => setShowNewSession((visible) => !visible)}>{showNewSession ? "Close new session" : "+ New session"}</button>
                   {showNewSession && <div className="new-session-popover"><label className="session-name-field"><span>SESSION NAME</span><input value={newSessionName} onChange={(event) => setNewSessionName(event.target.value)} maxLength={100} /></label><SessionModeOptions value={newSessionMode} onChange={setNewSessionMode} /><button className="button primary" onClick={createSession} disabled={Boolean(busy)}>{busy === "create" ? "Creating…" : `Create ${newSessionMode === "supervised" ? "manual" : "practice"} bench`}<span>→</span></button><small>Creating a session does not start a test or take a measurement.</small></div>}
-                </div>
+                </div></details>
               </section>
 
-              <section className="status-ribbon" aria-label="Service status">
+              {visualPaused && <div className="camera-resume"><span>Camera previews stopped.</span><button className="button secondary small" onClick={() => setVisualPaused(false)} disabled={!health}>Resume camera workspace</button></div>}
+              <div className="camera-guide-layout">
+                <CameraWorkspace paused={visualPaused || !health} onSnapshot={useCameraSnapshot} onActivity={setVisualCaption} />
+                <aside className="bench-guide-card panel"><span className="eyebrow">YOUR CIRCUIT COMPANION</span><h2>Frieren</h2><FrierenGuide activity={activity} expression={guideExpression} reducedMotion={reducedMotion} /><p>{visualCaption || "Show me what you’re working on. We’ll take it one step at a time."}</p><button className="button secondary" onClick={() => setTab("photo")}>Upload a photo or diagram <span>↗</span></button><button className="text-button" onClick={() => { setGuideExpression("happy"); setVisualCaption("Glad that helped. Let’s keep going."); }}>That worked ✓</button></aside>
+              </div>
+
+              <details className="service-details"><summary>Connection status</summary><section className="status-ribbon" aria-label="Service status">
                 <StatusItem icon="◉" label="Bench service" value={health?.status === "ready" ? "Connected locally" : "Checking connection"} tone={health?.status === "ready" ? "good" : "muted"} />
                 <StatusItem icon="✦" label="Reasoning" value={reasoningLabel} tone="muted" />
                 <StatusItem icon="⌁" label="Voice" value={voiceOverviewLabel} tone="muted" />
                 <StatusItem icon="⊘" label="Hardware" value={hardwareLabel} tone="locked" />
-              </section>
+              </section></details>
 
               <section className="voice-card panel">
                 <div className="voice-orb"><span>⌁</span><i /></div>
@@ -802,12 +835,13 @@ function App() {
                   {voiceStatus?.hands_free === "unverified" && <small className="voice-limit">Hands-free wake words are unverified and unavailable in this preview.</small>}
                   <details className="transcript-test"><summary>Test routing with typed text <span>NO MICROPHONE</span></summary><div className="transcript-test-row"><input value={transcriptTest} maxLength={4096} onChange={(event) => setTranscriptTest(event.target.value)} placeholder="Try: ‘I read 1.65 volts’ or ask a circuit question" /><button className="button secondary small" onClick={submitTranscriptTest} disabled={!sessionId || !transcriptTest.trim() || Boolean(busy)}>Route text</button></div></details>
                   {voiceReply?.route === "question" && voiceReply.result && <div className="voice-answer"><strong>Local evidence summary</strong><p>{voiceReply.result.text}</p><small>{voiceReply.result.evidence_ids?.length ? `Evidence: ${voiceReply.result.evidence_ids.join(", ")}` : "No supporting evidence IDs were returned."}{voiceReply.result.limitations?.length ? ` · ${voiceReply.result.limitations.join("; ")}` : ""}</small></div>}
-                  {voiceReply?.route === "question" && (typeof voiceReply.question === "string" || typeof voiceReply.transcript?.text === "string") && <button className="text-button voice-investigate-button" onClick={() => { const originalQuestion = typeof voiceReply.question === "string" ? voiceReply.question : voiceReply.transcript.text; setInvestigatorPrefill(originalQuestion.slice(0, 4000)); setTab("troubleshoot"); }}>Investigate this question →</button>}
+                  {voiceReply?.route === "question" && (typeof voiceReply.question === "string" || typeof voiceReply.transcript?.text === "string") && <button className="text-button voice-investigate-button" onClick={() => { const originalQuestion = typeof voiceReply.question === "string" ? voiceReply.question : voiceReply.transcript.text; setInvestigatorPrefill(originalQuestion.slice(0, 4000)); setTab("photo"); }}>Ask with a photo →</button>}
                   {voiceReply?.route === "question" && localSpeechEnabled && localVoice && typeof voiceReply.result?.text === "string" && <button className="button secondary small" onClick={() => speakLocalText(voiceReply.result.text)} disabled={voiceReply.result.text.length > 12000 || session?.status !== "active"}>{voiceReply.result.text.length > 12000 ? "Summary too long to read aloud" : `Read local summary · ${localVoice.name}`}</button>}
                   {voiceReply?.route && <div className="voice-route"><span>ROUTE</span> {niceName(voiceReply.route)}{voiceReply.transcript?.text ? <em>“{voiceReply.transcript.text}”</em> : null}</div>}
                 </div>
               </section>
 
+              <details className="bench-advanced" open={advancedOpen} onToggle={event => setAdvancedOpen(event.currentTarget.open)}><summary>Measurements and circuit tools</summary><p className="advanced-intro">For KiCad files, simulations, assembly instructions, firmware troubleshooting, and confirmed meter readings.</p><button className="button secondary small" onClick={() => setTab("troubleshoot")}>Open circuit and firmware tools <span>↗</span></button>
               {!session ? (
                 <section className="welcome-card">
                   <div className="welcome-art"><GuidePortrait activity={activity} reducedMotion={reducedMotion} /></div>
@@ -856,22 +890,6 @@ function App() {
                       </div>
                     </div>
 
-                    <div className="panel camera-panel">
-                      <PanelHeader kicker="VISUAL CONTEXT" title="Camera views" right={<span className="offline-label"><i /> DISCONNECTED</span>} />
-                      <div className="camera-placeholder">
-                        <div className="camera-glyph"><span /><i /><b /></div>
-                        <strong>No camera feed</strong>
-                        <span>iPhone · Camo USB</span>
-                        <small>Connect a camera in Devices when setup is ready.</small>
-                      </div>
-                      <div className="camera-placeholder camera-secondary">
-                        <div className="camera-glyph pi"><span /><i /><b /></div>
-                        <strong>Moving close-up</strong>
-                        <span>Raspberry Pi camera · Ethernet</span>
-                        <small>Not connected · physical output disabled</small>
-                      </div>
-                      <div className="semantic-demo"><div className="semantic-demo-top"><span>SEMANTIC OVERLAY PREVIEW</span><span className="mock-tag">ILLUSTRATION</span></div><div className="overlay-sketch"><span className="target-ring">A</span><span className="target-line" /><span className="target-point" /><small>Test point · A</small></div><p>Illustrated target marker. No live image or camera coordinates.</p></div>
-                    </div>
                   </section>
 
                   <section className="panel workflow-panel">
@@ -908,10 +926,10 @@ function App() {
 
                   <section className="lower-grid">
                     <div className="panel ledger-panel"><PanelHeader kicker="SESSION HISTORY" title="Evidence ledger" right={<span className="revision-tag">{events.length} EVENTS</span>} /><div className="ledger-list">{events.length === 0 ? <div className="empty-ledger">No session events yet. {isManualSession ? "Prepare a reading request when you are ready." : "Start a practice reading step to see its record here."}</div> : events.slice().reverse().slice(0, 8).map((event) => <LedgerEvent key={event.event_id} event={event} />)}</div></div>
-                    <div className="panel guide-panel"><div className="guide-panel-art"><GuidePortrait activity={activity} reducedMotion={reducedMotion} compact /></div><div className="guide-panel-copy"><span className="eyebrow">YOUR BENCH GUIDE</span><h3>Ohm Path guide</h3><p>Neutral placeholder guide. The Frieren character, licensed assets, and voice are still pending.</p><span className={`guide-activity ${activity}`}><i />{activityLabel[activity]}</span><button className="text-button" onClick={() => setTab("settings")}>Guide registry →</button></div></div>
+                    <div className="panel guide-panel"><div className="guide-panel-art"><FrierenGuide activity={activity} expression={guideExpression} reducedMotion={reducedMotion} compact /></div><div className="guide-panel-copy"><span className="eyebrow">YOUR BENCH GUIDE</span><h3>Frieren</h3><p>{companionCaption}</p><span className={`guide-activity ${activity}`}><i />{activityLabel[activity]}</span></div></div>
                   </section>
                 </>
-              )}
+              )}</details>
 
               {(error || notice) && <div className={`toast ${error ? "error" : "success"}`} role="status"><span>{error ? "!" : "✓"}</span><div><strong>{error ? "Needs attention" : "Updated"}</strong><small>{error || notice}</small></div><button onClick={() => { setError(""); setNotice(""); }} aria-label="Dismiss">×</button></div>}
             </>
@@ -920,7 +938,7 @@ function App() {
         <footer className="app-footer"><span>Ohm Path · {isManualSession ? "Manual user-reported entry" : "Local practice environment"}</span><span>Visual guidance is not electrical verification.</span></footer>
       </main>
 
-      {showGuide && <aside className="guide-float" aria-label="Guide companion"><div className="guide-float-head"><span className="guide-mini-dot" /><span>GUIDE COMPANION</span><button onClick={() => setShowGuide(false)} aria-label="Hide guide">×</button></div><div className="guide-float-body"><GuidePortrait activity={activity} reducedMotion={reducedMotion} compact /><div><strong>{isManualSession ? "Bench companion" : "Practice together"}</strong><small>{activityLabel[activity]}</small></div></div></aside>}
+      {showGuide && tab !== "bench" && tab !== "settings" && tab !== "photo" && <aside className="guide-float" aria-label="Guide companion"><div className="guide-float-head"><span className="guide-mini-dot" /><span>FRIEREN</span><button onClick={() => setShowGuide(false)} aria-label="Hide guide">×</button></div><div className="guide-float-body"><FrierenGuide activity={activity} expression={guideExpression} reducedMotion={reducedMotion} compact /><div><strong>{activityLabel[activity]}</strong><small>{companionCaption}</small><button className="text-button" onClick={() => { setGuideExpression("happy"); setVisualCaption("Glad that helped. Let’s keep going."); }}>That worked ✓</button></div></div></aside>}
     </div>
   );
 }
@@ -1012,9 +1030,7 @@ function LedgerEvent({ event }: { event: AnyRecord }) {
 }
 
 function GuidePortrait({ activity, reducedMotion, compact = false }: { activity: GuideActivity; reducedMotion: boolean; compact?: boolean }) {
-  return <div className={`guide-portrait ${compact ? "compact" : ""} ${activity} ${reducedMotion ? "static" : ""}`} aria-hidden="true">
-    <span className="portrait-aura" /><span className="portrait-hair hair-back" /><span className="portrait-neck" /><span className="portrait-shoulder" /><span className="portrait-face"><i className="eye left" /><i className="eye right" /><i className="face-blush left" /><i className="face-blush right" /><i className="mouth" /></span><span className="portrait-hair hair-front" /><span className="portrait-star star-one">✦</span><span className="portrait-star star-two">·</span>
-  </div>;
+  return <FrierenGuide activity={activity} reducedMotion={reducedMotion} compact={compact} />;
 }
 
 function ComingSoon({ tab, onBack }: { tab: Tab; onBack: () => void }) {
@@ -1038,21 +1054,20 @@ function SettingsPage({ reducedMotion, onReducedMotion, showGuide, onShowGuide, 
   onCompanion: (enabled: boolean) => void;
 }) {
   return <div className="settings-page">
-    <div className="page-heading settings-heading"><div><div className="eyebrow">PREFERENCES & REGISTRY</div><h1>Settings</h1><p>Local display preferences and the guide slots planned for Ohm Path.</p></div></div>
+    <div className="page-heading settings-heading"><div><div className="eyebrow">MAKE YOURSELF AT HOME</div><h1>Settings</h1><p>Your guide, voice connection, and optional turret.</p></div></div>
     <div className="settings-grid">
       <ElevenLabsSettings />
+      <TurretSettings />
       <section className="panel settings-panel"><PanelHeader kicker="ACCESSIBILITY" title="Display preferences" />
         <label className="preference-row"><span><strong>Reduce motion</strong><small>Stop decorative animation across the guide and interface.</small></span><input type="checkbox" checked={reducedMotion} onChange={(event) => onReducedMotion(event.target.checked)} /></label>
-        <label className="preference-row"><span><strong>Show guide companion</strong><small>Keep the small guide panel visible above the work area.</small></span><input type="checkbox" checked={showGuide} onChange={(event) => onShowGuide(event.target.checked)} /></label>
+                <label className="preference-row"><span><strong>Show guide companion</strong><small>Keep Frieren’s small companion visible on Photo help and circuit tools.</small></span><input type="checkbox" checked={showGuide} onChange={(event) => onShowGuide(event.target.checked)} /></label>
         <label className="preference-row"><span><strong>Optional local system voice</strong><small>{localVoice ? `System voice: ${localVoice.name}. Spoken summaries and explanations require a button press.` : "No local system voice is available. Captions remain available."}</small></span><input type="checkbox" checked={localSpeechEnabled} disabled={!localVoice} onChange={(event) => onLocalSpeech(event.target.checked)} /></label>
         <label className="preference-row"><span><strong>Floating desktop companion</strong><small>Open a separate activity and caption window. It has no bench controls and opens only when enabled.</small></span><input type="checkbox" checked={companionEnabled} disabled={companionBusy} onChange={(event) => onCompanion(event.target.checked)} /></label>
         {companionError && <p className="companion-settings-error" role="alert">{companionError}</p>}
       </section>
-      <section className="panel settings-panel registry-panel"><PanelHeader kicker="CHARACTER REGISTRY" title="Guides" right={<span className="revision-tag">3 PLANNED SLOTS</span>} />
-        <div className="registry-entry"><span className="registry-avatar pending">F</span><span><strong>Frieren</strong><small>Selected for first guide · character art and voice not supplied</small></span><span className="registry-status pending">PENDING ASSETS</span></div>
-        <div className="registry-entry"><span className="registry-avatar">02</span><span><strong>Guide slot 2</strong><small>No character selected</small></span><span className="registry-status">OPEN</span></div>
-        <div className="registry-entry"><span className="registry-avatar">03</span><span><strong>Guide slot 3</strong><small>No character selected</small></span><span className="registry-status">OPEN</span></div>
-        <p className="registry-note">This preview uses a neutral abstract placeholder. It does not represent an approved Frieren asset or licensed voice.</p>
+      <section className="panel settings-panel registry-panel"><PanelHeader kicker="YOUR COMPANION" title="Frieren" />
+        <div className="guide-expression-preview">{(["neutral", "thinking", "stumped", "happy"] as const).map(expression => <figure key={expression}><FrierenGuide activity="idle" expression={expression} reducedMotion={reducedMotion} compact /><figcaption>{niceName(expression)}</figcaption></figure>)}</div>
+        <p className="registry-note">Expressions follow the current activity. “That worked” lets her know your fix helped. Voice generation stays off during setup.</p>
       </section>
       <section className="panel settings-panel runtime-panel"><PanelHeader kicker="RUNTIME BOUNDARIES" title="Connected services" />
         <div className="runtime-row"><span><strong>Reasoning</strong><small>{reasoningStatus === "subscription_on_request" ? "Subscription route; account and allowance checks run before each request." : "Preflight status is not currently available."}</small></span><span className={`runtime-state ${reasoningStatus === "subscription_on_request" ? "safe" : "paused"}`}>{reasoningStatus === "subscription_on_request" ? "ON REQUEST" : "UNAVAILABLE"}</span></div>

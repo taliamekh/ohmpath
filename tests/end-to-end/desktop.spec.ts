@@ -27,6 +27,8 @@ test('desktop connects to a real local service and confirms only after readback'
     const page = context.pages()[0] || await context.waitForEvent('page', { timeout: 12000 });
     page.setDefaultTimeout(8000);
     console.log('Electron page ready', page.url());
+    await expect(page.getByRole('heading', { name: /Let’s look at your circuit/ })).toBeVisible();
+    await page.getByText('Measurements and circuit tools', { exact: true }).click();
     await page.getByRole('button', { name: 'Create practice bench' }).click();
     await expect(page.getByRole('button', { name: 'Run local solve' })).toBeVisible();
     await page.getByRole('button', { name: 'Run local solve' }).click();
@@ -49,13 +51,6 @@ test('desktop connects to a real local service and confirms only after readback'
     });
     expect(result.filter((e: any) => e.event_type === 'measurement.confirmed')).toHaveLength(1);
     expect(result.find((e: any) => e.event_type === 'measurement.confirmed').payload.evidence_kind).toBe('simulated_user_input');
-    await page.getByText('Test routing with typed text', { exact: false }).click();
-    await page.getByPlaceholder('Try: ‘I read 1.65 volts’ or ask a circuit question').fill('Why is the divider voltage lower than expected?');
-    await page.getByRole('button', { name: 'Route text', exact: true }).click();
-    await expect(page.getByText('Local evidence summary', { exact: true })).toBeVisible();
-    await page.getByRole('button', { name: 'Investigate this question', exact: false }).click();
-    await expect(page.getByPlaceholder('What does the measured voltage tell us about this divider?')).toHaveValue('Why is the divider voltage lower than expected?');
-    await page.getByRole('button', { name: 'Bench', exact: false }).first().click();
     // Start a fresh practice circuit to avoid mixing the signed-input check with the fault case.
     await page.getByRole('button', { name: 'Divider', exact: true }).click();
     await page.getByRole('button', { name: 'Low-voltage supply' }).click();
@@ -73,20 +68,12 @@ test('desktop connects to a real local service and confirms only after readback'
     await page.getByRole('button', { name: 'Review in step setup' }).click();
     await expect(page.getByLabel('RED PROBE · NODE')).toHaveValue('A');
     await expect(page.getByRole('button', { name: 'Start practice step' })).toBeVisible();
-    await page.getByRole('button', { name: 'Troubleshoot', exact: false }).click();
+    await page.getByRole('button', { name: 'Open circuit and firmware tools' }).click();
     await page.getByRole('button', { name: 'Prepare assembly plan', exact: false }).click();
     await expect(page.getByText('I checked this step myself').first()).toBeVisible();
     await page.getByPlaceholder('Paste the text you copied from your serial monitor or build output…').fill('boot\nboot\nboot\nbrownout');
     await page.getByRole('button', { name: 'Analyze supplied log', exact: false }).click();
     await expect(page.getByText('boot loop', { exact: true })).toBeVisible();
-    await page.getByRole('button', { name: 'Circuit lab', exact: false }).click();
-    await page.getByRole('button', { name: 'Run simulation', exact: false }).click();
-    await expect(page.getByRole('img', { name: 'Capacitor node response; Voltage plotted against Elapsed time' })).toBeVisible();
-    await expect(page.getByText('Within 2%', { exact: true })).toBeVisible();
-    await page.getByRole('button', { name: 'Diode sweep', exact: true }).click();
-    await page.getByRole('button', { name: 'Run simulation', exact: false }).click();
-    await expect(page.getByRole('img', { name: 'Series current versus source sweep; Diode current plotted against Supply voltage' })).toBeVisible();
-    await page.screenshot({ path: 'runtime/laboratory-verified.png', fullPage: true });
     await page.getByRole('button', { name: 'Settings', exact: false }).first().click();
     const newGuide = context.waitForEvent('page');
     await page.getByLabel('Floating desktop companion').click();

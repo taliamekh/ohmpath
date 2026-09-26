@@ -7,7 +7,10 @@ const fs = require('node:fs');
 const { PiVideoClient } = require('./pi-video.cjs');
 const { prepareReviewedImage } = require('./reviewed-image.cjs');
 const { createElevenLabsConnection } = require('./elevenlabs.cjs');
+const { createPhotoImages, UUID } = require('./photo-images.cjs');
+const { createTurretPreference } = require('./turret-preference.cjs');
 const piVideo = new PiVideoClient();
+const photoImages = createPhotoImages(nativeImage);
 
 const root = resolve(__dirname, '../../../..');
 if (process.env.OHMPATH_DATA_DIR) app.setPath('userData', join(process.env.OHMPATH_DATA_DIR, 'desktop'));
@@ -17,12 +20,13 @@ let child;
 let baseUrl;
 let mainWindow;
 let companionWindow;
-let companionState = { activity: 'idle', caption: 'Ohm Path guide. Character assets are pending.', reducedMotion: false };
+let companionState = { activity: 'idle', expression: 'neutral', caption: 'Ready when you are.', reducedMotion: false };
 let userToken;
 let stopping = false;
 let microphoneAllowed = false;
 let cameraAllowed = false;
 let elevenLabs;
+let turretPreference;
 app.on('second-instance', () => {
   if (mainWindow && !mainWindow.isDestroyed() && process.env.OHMPATH_HEADLESS !== '1') {
     if (mainWindow.isMinimized()) mainWindow.restore();
@@ -96,7 +100,7 @@ function sendCompanionState(state) {
 async function openCompanion() {
   if (companionWindow && !companionWindow.isDestroyed()) { if (process.env.OHMPATH_HEADLESS !== '1') companionWindow.showInactive(); return { enabled: true }; }
   const area = screen.getDisplayMatching(mainWindow.getBounds()).workArea;
-  companionWindow = new BrowserWindow({ width: 300, height: 380, x: area.x + area.width - 320, y: area.y + area.height - 400,
+  companionWindow = new BrowserWindow({ width: 320, height: 570, x: area.x + area.width - 340, y: area.y + area.height - 590,
     frame: false, resizable: false, alwaysOnTop: true, focusable: false, skipTaskbar: true, show: false,
     backgroundColor: '#10242b', title: 'Ohm Path companion',
     webPreferences: { preload: join(__dirname, 'companion-preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true } });
@@ -123,7 +127,47 @@ ipcMain.handle('ohmpath:companion-hide', event => {
 
 ipcMain.handle('ohmpath:request', async (event, action, payload) => {
   if (!trustedSender(event) || typeof action !== 'string' || payload === null || typeof payload !== 'object'
-      || JSON.stringify(payload).length > (action === 'transcribe' ? 2100000 : 60000)) throw new Error('Invalid application message.');
+      || JSON.stringify(payload).length > (action === 'transcribe' ? 2100000 : action === 'photoImportCapture' ? 2701000 : 60000)) throw new Error('Invalid application message.');
+  if (action === 'turretStatus') return turretPreference.status();
+  if (action === 'setTurretEnabled') return turretPreference.set(payload.enabled);
+  if (action === 'photoChooseImage') {
+    const selected = await dialog.showOpenDialog(mainWindow, { title: 'Choose a circuit photo or diagram', properties: ['openFile'],
+      filters: [{ name: 'Circuit photos and diagrams', extensions: ['png', 'jpg', 'jpeg'] }] });
+    if (selected.canceled || selected.filePaths.length !== 1) return { cancelled: true };
+    const source = selected.filePaths[0];
+    const stat = await fs.promises.lstat(source);
+    if (!stat.isFile() || stat.isSymbolicLink() || stat.size > 2000000) throw new Error('Choose a local PNG or JPEG under 2 MB.');
+    const handle = await fs.promises.open(source, 'r');
+    try {
+      const opened = await handle.stat();
+      if (!opened.isFile() || opened.size > 2000000) throw new Error('Choose a local PNG or JPEG under 2 MB.');
+      const bytes = Buffer.alloc(2000001);
+      let length = 0;
+      while (length < bytes.length) {
+        const result = await handle.read(bytes, length, bytes.length - length, null);
+        if (!result.bytesRead) break;
+        length += result.bytesRead;
+      }
+      if (length > 2000000) throw new Error('Choose a local PNG or JPEG under 2 MB.');
+      return { image: photoImages.add(bytes.subarray(0, length), require('node:path').basename(source)) };
+    } finally { await handle.close(); }
+  }
+  if (action === 'photoImportCapture') return { image: photoImages.capture(payload) };
+  if (action === 'photoReleaseImage') return photoImages.release(payload.image_id);
+  if (action === 'photoAsk') {
+    if (!UUID.test(payload.context_id) || typeof payload.question !== 'string' || !payload.question.trim() || payload.question.length > 4000)
+      throw new Error('Enter a question for these images.');
+    return callBench('/v1/photo-help/investigate', 'POST', { context_id: payload.context_id,
+      question: payload.question, images: photoImages.selected(payload.image_ids) });
+  }
+  if (action === 'photoStatus') {
+    if (!UUID.test(payload.turn_id)) throw new Error('Invalid photo question ID.');
+    return callBench(`/v1/photo-help/${payload.turn_id}`, 'GET');
+  }
+  if (action === 'photoCancel') {
+    if (!UUID.test(payload.context_id) || (payload.turn_id !== undefined && !UUID.test(payload.turn_id))) throw new Error('Invalid photo question ID.');
+    return callBench('/v1/photo-help/cancel', 'POST', { context_id: payload.context_id, ...(payload.turn_id ? { turn_id: payload.turn_id } : {}) });
+  }
   const voiceConnectionActions = {
     elevenLabsStatus: 'status', elevenLabsConnect: 'connect', elevenLabsRefresh: 'refresh',
     elevenLabsSelectVoice: 'selectVoice', elevenLabsDisconnect: 'disconnect',
@@ -137,7 +181,8 @@ ipcMain.handle('ohmpath:request', async (event, action, payload) => {
   if (action === 'updateCompanion') {
     if (!['idle', 'listening', 'thinking', 'speaking', 'paused', 'error'].includes(payload.activity)
         || typeof payload.caption !== 'string' || payload.caption.length > 500 || typeof payload.reducedMotion !== 'boolean') throw new Error('Invalid companion state.');
-    sendCompanionState({ activity: payload.activity, caption: payload.caption, reducedMotion: payload.reducedMotion });
+    if (payload.expression !== undefined && !['neutral', 'thinking', 'stumped', 'happy'].includes(payload.expression)) throw new Error('Invalid guide expression.');
+    sendCompanionState({ activity: payload.activity, expression: payload.expression || 'neutral', caption: payload.caption, reducedMotion: payload.reducedMotion });
     return { enabled: Boolean(companionWindow && !companionWindow.isDestroyed()) };
   }
   if (action === 'enableMicrophone') { microphoneAllowed = true; return { allowed: true }; }
@@ -234,6 +279,7 @@ ipcMain.handle('ohmpath:request', async (event, action, payload) => {
 app.whenReady().then(async () => {
   if (!ownsProfile) return;
   elevenLabs = createElevenLabsConnection({ safeStorage, filePath: join(app.getPath('userData'), 'private', 'elevenlabs.enc') });
+  turretPreference = createTurretPreference(join(app.getPath('userData'), 'settings', 'turret.json'));
   session.defaultSession.setPermissionCheckHandler((contents, permission, _origin, details) => {
     const expected = require('node:url').pathToFileURL(join(root, 'dist/desktop/index.html')).href;
     const url = contents?.getURL() || '';
@@ -275,6 +321,7 @@ app.on('window-all-closed', () => app.quit());
 app.on('before-quit', event => {
   if (stopping) return;
   stopping = true;
+  photoImages.clear();
   piVideo.disconnect();
   if (companionWindow && !companionWindow.isDestroyed()) companionWindow.close();
   if (!child || child.exitCode !== null) return;
