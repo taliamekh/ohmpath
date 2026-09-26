@@ -145,6 +145,10 @@ def export_kicad_xml(
                     process.kill()
                     process.wait()
                     raise ValueError("KiCad CLI output exceeded the 100 KB limit")
+                if output.exists() and output.stat().st_size > 5_000_000:
+                    process.kill()
+                    process.wait()
+                    raise ValueError("KiCad XML export exceeded the 5 MB import limit")
                 if time.monotonic() - start > timeout_s:
                     process.kill()
                     process.wait()
