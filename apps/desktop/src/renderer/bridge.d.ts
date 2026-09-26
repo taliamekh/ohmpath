@@ -8,7 +8,7 @@ declare global {
       onCompanionClosed?(callback: () => void): () => void;
     };
     ohmpathCompanion?: {
-      onState(callback: (state: { activity: "idle" | "listening" | "thinking" | "speaking" | "paused" | "error"; caption: string; reducedMotion: boolean }) => void): () => void;
+      onState(callback: (state: { activity: "idle" | "listening" | "thinking" | "speaking" | "paused" | "error"; expression?: "neutral" | "thinking" | "stumped" | "happy"; caption: string; reducedMotion: boolean }) => void): () => void;
       hide(): Promise<unknown>;
     };
   }

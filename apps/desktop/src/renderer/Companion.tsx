@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
+import FrierenGuide, { type GuideExpression } from "./FrierenGuide";
 
 type Activity = "idle" | "listening" | "thinking" | "speaking" | "paused" | "error";
-type CompanionState = { activity: Activity; caption: string; reducedMotion: boolean };
+type CompanionState = { activity: Activity; expression?: GuideExpression; caption: string; reducedMotion: boolean };
 
 const activityLabels: Record<Activity, string> = {
   idle: "Guide idle",
@@ -21,6 +22,7 @@ export default function Companion() {
     const unsubscribe = window.ohmpathCompanion?.onState((next) => {
       setState({
         activity: next.activity,
+        expression: next.expression,
         caption: typeof next.caption === "string" ? next.caption.slice(0, 500) : "",
         reducedMotion: next.reducedMotion === true,
       });
@@ -42,9 +44,9 @@ export default function Companion() {
       <button className="companion-hide" onClick={() => void hide()} disabled={hiding} aria-label="Hide floating companion" title="Hide companion">×</button>
     </header>
     <section className="companion-center" aria-label="Guide activity">
-      <div className={`companion-orbit ${state.activity}`} aria-hidden="true"><span className="companion-orbit-ring" /><span className="companion-orbit-core"><i /><b /></span><span className="companion-orbit-star">✦</span></div>
+      <FrierenGuide activity={state.activity} expression={state.expression} reducedMotion={state.reducedMotion} />
       <div className={`companion-activity ${state.activity}`} role="status"><i />{activityLabels[state.activity]}</div>
-      <p className="companion-identity">Neutral guide placeholder<br /><span>Frieren art and voice pending</span></p>
+      <p className="companion-identity">Frieren<br /><span>Your circuit companion</span></p>
     </section>
     <section className="companion-caption" aria-live="polite" aria-label="Current caption">
       <span className="eyebrow">LIVE CAPTION</span>
