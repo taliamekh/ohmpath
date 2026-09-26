@@ -1,5 +1,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 import "./photo-help.css";
+import PhonePhotoLink from "./PhonePhotoLink";
+import SpokenQuestion from "./SpokenQuestion";
 
 export type PhotoHelpImage = {
   image_id: string;
@@ -39,9 +41,11 @@ export type PhotoHelpPageProps = {
   onCaptureConsumed?: () => void;
   prefillQuestion?: string;
   onPrefillConsumed?: () => void;
-  onActivity?: (activity: "idle" | "thinking" | "error", caption?: string) => void;
+  onActivity?: (activity: "idle" | "listening" | "thinking" | "error", caption?: string) => void;
   onReadAloud?: (text: string) => void;
+  onStopSpeaking?: () => void;
   speechAvailable?: boolean;
+  phoneTransfer?: boolean;
 };
 
 async function request<T>(action: string, payload: Record<string, unknown> = {}): Promise<T> {
@@ -91,7 +95,7 @@ function speakText(answer: PhotoAnswer): string {
   return [answer.explanation, ...answer.next_steps.slice(0, 3)].join(" ");
 }
 
-export default function PhotoHelpPage({ active = true, initialCapture, onCaptureConsumed, prefillQuestion = "", onPrefillConsumed, onActivity, onReadAloud, speechAvailable = false }: PhotoHelpPageProps) {
+export default function PhotoHelpPage({ active = true, initialCapture, onCaptureConsumed, prefillQuestion = "", onPrefillConsumed, onActivity, onReadAloud, onStopSpeaking, speechAvailable = false, phoneTransfer = false }: PhotoHelpPageProps) {
   const questionId = useId();
   const [images, setImages] = useState<PhotoHelpImage[]>([]);
   const [selectedId, setSelectedId] = useState("");
@@ -99,6 +103,7 @@ export default function PhotoHelpPage({ active = true, initialCapture, onCapture
   const [turns, setTurns] = useState<Turn[]>([]);
   const [busy, setBusy] = useState(false);
   const [choosing, setChoosing] = useState(false);
+  const [recordingQuestion, setRecordingQuestion] = useState(false);
   const [error, setError] = useState("");
   const [zoom, setZoom] = useState(1);
   const [activeNote, setActiveNote] = useState<number | null>(null);
@@ -116,8 +121,10 @@ export default function PhotoHelpPage({ active = true, initialCapture, onCapture
   const consumedCaptureRef = useRef("");
   const latestActivityRef = useRef(onActivity);
   latestActivityRef.current = onActivity;
+  const stopSpeakingRef = useRef(onStopSpeaking);
+  stopSpeakingRef.current = onStopSpeaking;
 
-  function activity(state: "idle" | "thinking" | "error", caption?: string) {
+  function activity(state: "idle" | "listening" | "thinking" | "error", caption?: string) {
     if (mountedRef.current && activeRef.current) latestActivityRef.current?.(state, caption);
   }
 
@@ -130,6 +137,7 @@ export default function PhotoHelpPage({ active = true, initialCapture, onCapture
   }
 
   function cancelJob() {
+    stopSpeakingRef.current?.();
     generationRef.current += 1;
     const oldContext = contextIdRef.current;
     contextIdRef.current = crypto.randomUUID();
@@ -318,7 +326,8 @@ export default function PhotoHelpPage({ active = true, initialCapture, onCapture
 
   async function ask() {
     const askedQuestion = question.trim();
-    if (!activeRef.current || !askedQuestion || !imagesRef.current.length || jobRef.current) return;
+    if (!activeRef.current || !askedQuestion || !imagesRef.current.length || jobRef.current || recordingQuestion) return;
+    stopSpeakingRef.current?.();
     const job: ActiveJob = { context_id: contextIdRef.current, generation: ++generationRef.current, deadline: Date.now() + 90_000 };
     jobRef.current = job;
     setBusy(true);
@@ -350,6 +359,15 @@ export default function PhotoHelpPage({ active = true, initialCapture, onCapture
       <span className="photo-help-private"><span /> Images stay local until you ask</span>
     </header>
 
+    {phoneTransfer && <PhonePhotoLink active={active} accepting={!busy && !choosing && images.length < 3}
+      onPhoto={({ image, question: phoneQuestion }) => {
+        if (!activeRef.current || !validImage(image) || imagesRef.current.length >= 3 || jobRef.current) {
+          release(image.image_id); return;
+        }
+        changeImages([...imagesRef.current, image]);
+        if (phoneQuestion) setQuestion(phoneQuestion.slice(0, 4000));
+      }} />}
+
     <div className="photo-help-layout">
       <section className="photo-help-visual panel" aria-label="Selected image">
         <div className="photo-help-visual-head"><span><i /> {selected ? selected.name : "Your image goes here"}</span><div className="photo-help-zoom" aria-label="Image zoom"><button type="button" onClick={() => setZoom((value) => Math.max(1, value - .5))} disabled={!selected || zoom <= 1} aria-label="Zoom out">−</button><small>{Math.round(zoom * 100)}%</small><button type="button" onClick={() => setZoom((value) => Math.min(3, value + .5))} disabled={!selected || zoom >= 3} aria-label="Zoom in">+</button></div></div>
@@ -369,7 +387,13 @@ export default function PhotoHelpPage({ active = true, initialCapture, onCapture
           {images.length > 0 && <button type="button" className="photo-help-add-text" style={{ marginLeft: images.length < 3 ? 16 : 0 }} onClick={() => void chooseOrPaste("photoPasteImage")} disabled={choosing || images.length >= 3}>Paste image</button>}
           <button type="button" className="button secondary small" style={{ marginTop: 12 }} onClick={clearWorkspace} disabled={!images.length && !turns.length && !question && !error && !busy && !choosing}>Clear workspace</button>
         </section>
-        <section className="panel photo-help-ask"><span className="eyebrow">02 / ASK YOUR QUESTION</span><label htmlFor={questionId}>What would you like help with?</label><textarea id={questionId} value={question} onChange={(event) => setQuestion(event.target.value.slice(0, 4000))} placeholder="For example: Where should I start checking this board?" rows={4} maxLength={4000} /><p className="photo-help-voice-hint">Ask a follow-up about the same images, or add a clearer close-up.</p><p className="photo-help-disclosure">When you press Ask, your selected images and question go to your signed-in subscription reasoning service.</p><button type="button" className="button primary photo-help-submit" onClick={() => void ask()} disabled={busy || !images.length || !question.trim()}>{busy ? "Looking at your images…" : "Ask about these images"}<span>→</span></button>{busy && <button type="button" className="photo-help-cancel" onClick={cancelJob}>Stop request</button>}{error && <p className="photo-help-error" role="alert">{error}</p>}</section>
+        <section className="panel photo-help-ask"><span className="eyebrow">02 / ASK YOUR QUESTION</span><label htmlFor={questionId}>What would you like help with?</label>
+          <textarea id={questionId} value={question} onChange={(event) => setQuestion(event.target.value.slice(0, 4000))} placeholder="For example: Where should I start checking this board?" rows={4} maxLength={4000} />
+          <SpokenQuestion key={contextIdRef.current} active={active} disabled={busy || choosing} onBeforeCapture={onStopSpeaking}
+            onText={text => setQuestion(text.slice(0, 4000))}
+            onRecording={recording => { setRecordingQuestion(recording); activity(recording ? "listening" : "idle", recording ? "I’m listening. Finish recording when you’re ready." : ""); }} />
+          <p className="photo-help-voice-hint">Review your question, then press Ask. Recording fills this draft only.</p><p className="photo-help-disclosure">When you press Ask, your selected images and question go to your signed-in subscription reasoning service.</p>
+          <button type="button" className="button primary photo-help-submit" onClick={() => void ask()} disabled={busy || recordingQuestion || !images.length || !question.trim()}>{busy ? "Looking at your images…" : "Ask about these images"}<span>→</span></button>{busy && <button type="button" className="photo-help-cancel" onClick={cancelJob}>Stop request</button>}{error && <p className="photo-help-error" role="alert">{error}</p>}</section>
       </aside>
     </div>
 

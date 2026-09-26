@@ -30,8 +30,14 @@ The user selected the **English dub** as the intended Frieren performance. The c
 - Actual ElevenLabs streaming returned 162,726 PCM bytes in 36 chunks for one short sample. Generation was disabled afterward. This proves the selected stock voice's transport, not its identity, audible quality, or an end-to-end physical speaker test.
 - The attempted 30-minute **synthetic camera** run reproduced a raster mismatch at 17m44s after nine fullscreen cycles. It failed; all synthetic tracks and the private service stopped. The failure is preserved in private runtime evidence, and an accelerated pixel comparison is investigating it. No 30-minute pass is claimed.
 
+## Integration checkpoint and publication request
+
+At 23:05 UTC, the integrated renderer build, generated-contract check and full Python lint passed. The full Python suite passed **401 tests**, with two optional Windows OCR checks skipped because the local execution policy blocks the helper. All **48 desktop bridge unit tests** passed. Voice readback and Photo help voice regressions passed with simulated audio. The camera-focus regression exposed a paused-preview bug: a visible captured-image question was treated as inactive. Keeping the image review active fixed it; the regression then passed in 47.6 seconds. Fullscreen includes its own Stop speaking control.
+
+The user now explicitly authorizes progressively pushing reviewed, named feature branches and updating main when appropriate. The GitHub repository is public and authenticated with push permission. Existing unpublished local history contains private account/progress notes, so it will remain local. Separate public branches will carry reviewed source and sanitized technical documentation; no force-push, account notes, credentials, recordings or private runtime artifacts are included.
+
 ## Next tasks and open evidence
 
-Finish interface integration; review cancellation and credit boundaries; build once the existing camera soak releases the test window; run offline end-to-end tests; verify phone photo transfer and an actual iPhone video feed when the phone app is ready. Read fresh ElevenLabs account metadata before any bounded, authorized live voice test. Record actual outcomes and leave voice identity/quality unverified unless heard and assessed.
+Publish the reviewed software in coherent branches after the privacy review. Continue investigating the long animation mismatch with accelerated fullscreen phase sampling and retained pixel evidence. Verify actual iPhone photo transfer/video when Camo Camera is ready. No additional synthesis is necessary for transport verification. Voice identity/quality remains unverified unless heard and assessed.
 
 The full original requirements remain tracked in the checklist. Physical dual-camera tests, calibrated turret acceptance, noisy-bench speech/echo tests, active-component and MCU-specific fixtures, complete breadboard placement, remaining character packs, and clean-machine packaging are not completed by these changes.

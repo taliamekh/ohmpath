@@ -42,6 +42,16 @@ body { background: #eee9d7; }
   box-shadow: 5px 0 24px rgba(61, 76, 42, .16);
 }
 .journey-theme .main-shell { width: calc(100% - 258px); margin-left: 258px; background: rgba(250, 248, 235, .68); }
+.journey-theme .phone-photo-link { margin: 0 0 18px; padding: 15px 20px; }
+.journey-theme .phone-photo-link summary { color: #294b35; font-weight: 700; cursor: pointer; }
+.journey-theme .phone-photo-link summary span { margin-left: 14px; color: #52684d; font-size: 11px; font-weight: 500; }
+.phone-photo-link-body { display: flex; align-items: center; gap: 22px; padding-top: 12px; flex-wrap: wrap; }
+.phone-photo-link-body > div { flex: 1 1 260px; }
+.phone-photo-link-body p { font-size: 12px; line-height: 1.6; }
+.phone-photo-link-body label { display: block; margin: 12px 0 6px; font-size: 12px; font-weight: 700; }
+.phone-photo-link-body select { max-width: 100%; margin: 0 10px 12px 0; padding: 8px; }
+.phone-photo-link-body small { display: block; margin-top: 12px; line-height: 1.5; }
+.phone-photo-qr { width: 200px; height: 200px; flex: 0 0 200px; border: 1px solid #b7c19b; border-radius: 8px; }
 .journey-theme .brand-lockup { min-height: 82px; gap: 10px; padding: 3px 6px 12px; border-bottom: 1px solid rgba(88, 111, 72, .24); background: rgba(255, 251, 229, .64); border-radius: 10px; }
 .journey-theme .journey-brand .brand-mark { width: 63px; height: 63px; flex: 0 0 63px; border: 0; border-radius: 0; background: url("./assets/journey/emblem.png") center / contain no-repeat; box-shadow: none; }
 .journey-theme .journey-brand .brand-mark > span, .journey-theme .journey-brand .brand-mark > i { display: none; }
@@ -346,3 +356,4 @@ body { background: #eee9d7; }
 @media (prefers-reduced-motion: reduce) {
   .journey-theme .journey-nav .nav-item { transition: none; }
 }
+.speech-playback-control { position: fixed; bottom: 28px; left: 50%; transform: translateX(-50%); z-index: 150; display: flex; align-items: center; gap: 18px; padding: 12px 18px; border: 1px solid #7e6841; border-radius: 14px; background: #fff8e6; color: #283d30; font-weight: 700; box-shadow: 0 4px 24px #34291940; }

@@ -8,6 +8,8 @@ The [afternoon handoff](docs/development/afternoon-report.md) records the latest
 
 The [theme refinement](docs/development/theme-refinement.md) records the wooden signpost navigation, Live help name, complete panel palette and localized blink/breathing corrections.
 
+The [current software integration log](docs/development/software-finish-progress.md) tracks phone photo transfer, spoken questions, optional ElevenLabs playback, and the remaining camera/animation checks.
+
 Repository: [taliamekh/ohmpath](https://github.com/taliamekh/ohmpath).
 
 ## Start here
@@ -33,7 +35,7 @@ Ohm Path runs as its own Windows desktop application. The laptop handles the int
 
 Cloud reasoning connects through the user's local, signed-in Codex installation, subject to account access and allowance. ElevenLabs supplies spoken responses separately. Neither cloud reasoning nor paid voice is described as unlimited or free. A model suggests and explains; Ohm Path validates evidence and controls what can actually happen.
 
-The first companion is Frieren, with six reference-based poses and a floating companion. Thinking, stumped, happy, smug and weary expressions follow activity or explicit feedback; local ear, arm and clothing animation keeps the face anchored. The countryside interface uses painted raster artwork, wooden trail signs and an Omega-shaped path logo. The design documents preserve future guide slots; unused slots are not shown in the interface. Public asset permission and voice playback verification remain pending.
+The first companion is Frieren, with six reference-based poses and a floating companion. Thinking, stumped, happy, smug and weary expressions follow activity or explicit feedback; local ear, arm and clothing animation keeps the face anchored. The countryside interface uses painted raster artwork, wooden trail signs and an Omega-shaped path logo. The design documents preserve future guide slots; unused slots are not shown in the interface. Asset provenance is documented beside the artwork; exact voice identity and physical speaker quality remain unverified.
 
 ## Historical material
 
@@ -54,13 +56,17 @@ Setup uses the pinned dependency locks and pnpm 11.25.0. `python scripts/setup.p
 
 Start in **Live help**, or choose **Photo help** to upload a circuit photo or diagram without a camera or turret. Ask explicitly to send the selected images through the signed-in subscription. Camera previews start only after connection; analysis uses the snapshot you choose, not continuous unattended capture.
 
+In Photo help, **Send a photo from your phone** creates a 15-minute QR link on a selected private network. Keep both devices on trusted Wi-Fi; review the image on the phone before Send and on the laptop before Ask. This local HTTP transfer is unencrypted. USB live video separately uses Camo Studio and Camo Camera on the iPhone. Selecting Camo alone does not establish that its source is the iPhone.
+
+**Start recording / Finish recording** transcribes a short question locally into the editable draft. It never asks automatically. In Settings, optionally enable ElevenLabs spoken answers for the current launch; **Listen** sends that answer text to ElevenLabs and uses credits. The launch limit is 1,000 text characters, speech starts off after relaunch, and Stop speaking cancels pending playback. The currently selected stock voice is not an exact anime performance.
+
 Use **Full screen** to hide navigation and place Frieren at the bottom-right. **Subtitles on/off** also works without audio; the preference is available in Settings and survives relaunch. Snapshot questions open inside the camera workspace. **Back to camera** hides the review drawer while keeping your question and preview available. Press Escape to leave fullscreen, or **Pause previews** to stop capture.
 
 Under **Measurements and circuit tools**, create a practice bench, choose a fixture, and run the local solve. Review the declared setup before starting a measurement request. Enter a signed value with units, check its complete readback and explicitly confirm it. Practice inputs remain labeled simulated user input, distinct from physical measurements.
 
-Run `.venv/Scripts/python.exe scripts/verify.py --no-voice` for the explicit offline circuit, photo, camera, image and desktop verification profile. It excludes speech and ElevenLabs tests, uses synthetic cameras and performs no physical test. Add `--list` to inspect its commands without executing them. The default profile also includes voice mocks; it remains separate from the user's current no-voice verification request. `scripts/verify.ps1` forwards these options where local PowerShell policy permits. See the [Pi source deployment bundle](docs/development/pi-deployment.md) and [controller commands](docs/development/pi-controller-handoff.md) for the separately packaged Pi service. No Pi installation, SSH connection, flashing or motor operation has been performed.
+Run `.venv/Scripts/python.exe scripts/verify.py --no-voice` for the explicit offline circuit, photo, camera, image and desktop verification profile. It excludes speech and ElevenLabs tests, uses synthetic cameras and performs no physical test. Add `--list` to inspect its commands without executing them. The default profile also includes offline voice mocks. `scripts/verify.ps1` forwards these options where local PowerShell policy permits. See the [Pi source deployment bundle](docs/development/pi-deployment.md) and [controller commands](docs/development/pi-controller-handoff.md) for the separately packaged Pi service. No Pi installation, SSH connection, flashing or motor operation has been performed.
 
-The subscription investigator requires the existing signed-in Codex CLI version recorded in [the adapter handoff](docs/development/codex-adapter-handoff.md), access to the configured Astra model, and sufficient subscription allowance. It starts only on request, checks that access, and fails closed. It does not switch to API-key billing. Local speech output is optional and explicit. Settings can [link an ElevenLabs account without generating speech](docs/development/elevenlabs-connection.md); the current account is linked privately, with generation disabled as requested. Playback remains untested. See [visual workspace verification](docs/development/visual-workspace.md) for the new UI and photo-help boundaries.
+The subscription investigator requires the existing signed-in Codex CLI version recorded in [the adapter handoff](docs/development/codex-adapter-handoff.md), access to the configured Astra model, and sufficient subscription allowance. It starts only on request, checks that access, and fails closed. It does not switch to API-key billing. Local speech output is optional and explicit. Settings can [link an ElevenLabs account without generating speech](docs/development/elevenlabs-connection.md); optional [bounded playback](docs/development/voice-playback-implementation.md) is tested with synthetic streams. Real voice quality and speaker output remain unverified. See [visual workspace verification](docs/development/visual-workspace.md) for the UI and photo-help boundaries.
 
 ## Available tools in the interface
 
