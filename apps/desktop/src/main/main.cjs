@@ -10,6 +10,8 @@ const piVideo = new PiVideoClient();
 
 const root = resolve(__dirname, '../../../..');
 if (process.env.OHMPATH_DATA_DIR) app.setPath('userData', join(process.env.OHMPATH_DATA_DIR, 'desktop'));
+const ownsProfile = app.requestSingleInstanceLock();
+if (!ownsProfile) app.quit();
 let child;
 let baseUrl;
 let mainWindow;
@@ -19,6 +21,12 @@ let userToken;
 let stopping = false;
 let microphoneAllowed = false;
 let cameraAllowed = false;
+app.on('second-instance', () => {
+  if (mainWindow && !mainWindow.isDestroyed() && process.env.OHMPATH_HEADLESS !== '1') {
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show(); mainWindow.focus();
+  }
+});
 
 async function startBench() {
   const python = process.env.OHMPATH_PYTHON || join(root, '.venv', process.platform === 'win32' ? 'Scripts/python.exe' : 'bin/python');
@@ -214,6 +222,7 @@ ipcMain.handle('ohmpath:request', async (event, action, payload) => {
 });
 
 app.whenReady().then(async () => {
+  if (!ownsProfile) return;
   session.defaultSession.setPermissionCheckHandler((contents, permission, _origin, details) => {
     const expected = require('node:url').pathToFileURL(join(root, 'dist/desktop/index.html')).href;
     const url = contents?.getURL() || '';

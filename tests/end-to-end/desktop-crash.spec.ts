@@ -5,7 +5,7 @@ import { resolve } from 'node:path';
 import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 
-test('renderer reload preserves its session and a crash closes the private bench', async () => {
+test('one desktop owns each profile, reload preserves its session and a crash closes the bench', async () => {
   const dataDir = await mkdtemp(resolve(tmpdir(), 'ohmpath-crash-test-'));
   const requireElectron = createRequire(resolve('package.json'));
   const desktop = spawn(requireElectron('electron'), [resolve('.'), '--remote-debugging-port=0'], {
@@ -26,6 +26,13 @@ test('renderer reload preserves its session and a crash closes the private bench
     const page = context.pages()[0] || await context.waitForEvent('page');
     await page.getByRole('button', { name: 'Create practice bench' }).click();
     await expect(page.getByRole('button', { name: 'Run local solve' })).toBeVisible();
+    const duplicate = spawn(requireElectron('electron'), [resolve('.')], {
+      env: { ...process.env, OHMPATH_HEADLESS: '1', OHMPATH_DATA_DIR: dataDir }, windowsHide: true,
+    });
+    try {
+      await expect.poll(() => duplicate.exitCode, { timeout: 8000 }).toBe(0);
+      expect(desktop.exitCode).toBeNull();
+    } finally { if (duplicate.exitCode === null) duplicate.kill(); }
     await page.reload({ waitUntil: 'domcontentloaded' });
     await expect(page.getByRole('button', { name: 'Run local solve' })).toBeVisible();
     const devtools = await context.newCDPSession(page);
