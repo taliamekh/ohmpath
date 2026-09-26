@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import "./photo-help.css";
 
 export type PhotoHelpImage = {
@@ -92,6 +92,7 @@ function speakText(answer: PhotoAnswer): string {
 }
 
 export default function PhotoHelpPage({ active = true, initialCapture, onCaptureConsumed, prefillQuestion = "", onPrefillConsumed, onActivity, onReadAloud, speechAvailable = false }: PhotoHelpPageProps) {
+  const questionId = useId();
   const [images, setImages] = useState<PhotoHelpImage[]>([]);
   const [selectedId, setSelectedId] = useState("");
   const [question, setQuestion] = useState("");
@@ -368,7 +369,7 @@ export default function PhotoHelpPage({ active = true, initialCapture, onCapture
           {images.length > 0 && <button type="button" className="photo-help-add-text" style={{ marginLeft: images.length < 3 ? 16 : 0 }} onClick={() => void chooseOrPaste("photoPasteImage")} disabled={choosing || images.length >= 3}>Paste image</button>}
           <button type="button" className="button secondary small" style={{ marginTop: 12 }} onClick={clearWorkspace} disabled={!images.length && !turns.length && !question && !error && !busy && !choosing}>Clear workspace</button>
         </section>
-        <section className="panel photo-help-ask"><span className="eyebrow">02 / ASK YOUR QUESTION</span><label htmlFor="photo-help-question">What would you like help with?</label><textarea id="photo-help-question" value={question} onChange={(event) => setQuestion(event.target.value.slice(0, 4000))} placeholder="For example: Where should I start checking this board?" rows={4} maxLength={4000} /><p className="photo-help-voice-hint">Ask a follow-up about the same images, or add a clearer close-up.</p><p className="photo-help-disclosure">When you press Ask, your selected images and question go to your signed-in subscription reasoning service.</p><button type="button" className="button primary photo-help-submit" onClick={() => void ask()} disabled={busy || !images.length || !question.trim()}>{busy ? "Looking at your images…" : "Ask about these images"}<span>→</span></button>{busy && <button type="button" className="photo-help-cancel" onClick={cancelJob}>Stop request</button>}{error && <p className="photo-help-error" role="alert">{error}</p>}</section>
+        <section className="panel photo-help-ask"><span className="eyebrow">02 / ASK YOUR QUESTION</span><label htmlFor={questionId}>What would you like help with?</label><textarea id={questionId} value={question} onChange={(event) => setQuestion(event.target.value.slice(0, 4000))} placeholder="For example: Where should I start checking this board?" rows={4} maxLength={4000} /><p className="photo-help-voice-hint">Ask a follow-up about the same images, or add a clearer close-up.</p><p className="photo-help-disclosure">When you press Ask, your selected images and question go to your signed-in subscription reasoning service.</p><button type="button" className="button primary photo-help-submit" onClick={() => void ask()} disabled={busy || !images.length || !question.trim()}>{busy ? "Looking at your images…" : "Ask about these images"}<span>→</span></button>{busy && <button type="button" className="photo-help-cancel" onClick={cancelJob}>Stop request</button>}{error && <p className="photo-help-error" role="alert">{error}</p>}</section>
       </aside>
     </div>
 
