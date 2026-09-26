@@ -116,7 +116,10 @@ async function sampleCamera(page, previous) {
       track_state: track?.readyState ?? 'none',
       guide_present: Boolean(guide && guide.getBoundingClientRect().width > 0
         && ((canvas && canvas.width > 0 && canvas.height > 0) || (image && image.complete && image.naturalWidth > 0))),
-      face: regionHash([.43, .13, .57, .24]),
+      // Eyelids intentionally blink. Sample the lower face and central waist
+      // independently so blinking cannot disguise a shifting head or torso.
+      face: regionHash([.43, .218, .57, .24]),
+      waist: regionHash([.44, .52, .56, .70]),
       outer: regionHash([.04, .35, .34, .88]),
       guide_geometry: canvas ? `${canvas.width}x${canvas.height}` : 'none',
       guide_expression: guide?.getAttribute('data-expression') ?? 'none',
@@ -132,7 +135,7 @@ async function sampleCamera(page, previous) {
   if (previous && sample.video_frames !== null && previous.video_frames !== null
       && sample.video_frames <= previous.video_frames)
     throw new Error('Synthetic video decoded frame count stopped.');
-  if (!sample.face || sample.face.opaque < 50 || !sample.outer || sample.outer.opaque < 50)
+  if (!sample.face || sample.face.opaque < 20 || !sample.waist || sample.waist.opaque < 50 || !sample.outer || sample.outer.opaque < 50)
     throw new Error('Animated guide canvas was blank.');
   return sample;
 }
@@ -237,13 +240,13 @@ async function main() {
       report.video_samples += 1;
       const guideKey = [current.guide_geometry, current.guide_expression, current.guide_activity,
         current.guide_bounds, current.viewport].join('|');
-      if (faceBaseline === null) faceBaseline = { hash: current.face.hash, key: guideKey, opaque: current.face.opaque };
+      if (faceBaseline === null) faceBaseline = { hash: current.face.hash, waist: current.waist.hash, key: guideKey, opaque: current.face.opaque };
       else if (guideKey !== faceBaseline.key) {
         report.guide_geometry_changes += 1;
-        faceBaseline = { hash: current.face.hash, key: guideKey, opaque: current.face.opaque };
-      } else if (current.face.hash !== faceBaseline.hash) {
+        faceBaseline = { hash: current.face.hash, waist: current.waist.hash, key: guideKey, opaque: current.face.opaque };
+      } else if (current.face.hash !== faceBaseline.hash || current.waist.hash !== faceBaseline.waist) {
         throw new Error(`Animated guide face changed with the same geometry: baseline=${JSON.stringify(faceBaseline)}, current=${JSON.stringify({
-          hash: current.face.hash, key: guideKey, opaque: current.face.opaque })}.`);
+          hash: current.face.hash, waist: current.waist.hash, key: guideKey, opaque: current.face.opaque })}.`);
       }
       outerHashes.add(current.outer.hash);
       report.guide_outer_distinct_frames = outerHashes.size;

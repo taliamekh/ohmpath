@@ -14,6 +14,7 @@ const photoImages = createPhotoImages(nativeImage);
 const { MAX_UPLOAD_BYTES } = require('./photo-upload.cjs');
 
 const root = resolve(__dirname, '../../../..');
+const windowIcon = join(root, 'apps', 'desktop', 'src', 'renderer', 'assets', 'journey', 'emblem.png');
 if (process.env.OHMPATH_DATA_DIR) app.setPath('userData', join(process.env.OHMPATH_DATA_DIR, 'desktop'));
 const ownsProfile = app.requestSingleInstanceLock();
 if (!ownsProfile) app.quit();
@@ -300,7 +301,9 @@ app.whenReady().then(async () => {
   });
   await startBench();
   mainWindow = new BrowserWindow({ width: 1440, height: 940, minWidth: 980, minHeight: 700, title: 'Ohm Path', show: process.env.OHMPATH_HEADLESS !== '1',
-    backgroundColor: '#09111c', autoHideMenuBar: true,
+    icon: windowIcon, backgroundColor: '#eee9d7', autoHideMenuBar: true,
+    ...(process.platform === 'win32' ? { titleBarStyle: 'hidden',
+      titleBarOverlay: { color: '#65452e', symbolColor: '#fff4db', height: 32 } } : {}),
     webPreferences: { preload: join(__dirname, 'preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true } });
   mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   mainWindow.webContents.on('will-navigate', event => event.preventDefault());

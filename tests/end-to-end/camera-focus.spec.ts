@@ -27,7 +27,7 @@ test('camera focus keeps a synthetic preview mounted through snapshot and review
     // Retained standalone Photo help coexists with the camera review drawer.
     await page.getByRole('button', { name: 'Photo help', exact: false }).first().click();
     await expect(page.getByLabel('What would you like help with?')).toBeVisible();
-    await page.getByRole('button', { name: 'Camera help', exact: false }).first().click();
+    await page.getByRole('button', { name: 'Live help', exact: false }).first().click();
     const camera = page.getByRole('region', { name: 'Camera workspace' });
     await expect(camera.getByText('Overview camera is off')).toBeVisible();
     const video = await camera.locator('video').elementHandle();
@@ -136,7 +136,7 @@ test('camera focus keeps a synthetic preview mounted through snapshot and review
     await expect.poll(async () => (await audit()).cancels.some((item: { context_id: string }) =>
       item.context_id === lateContext)).toBe(true);
     await page.evaluate(() => (window as any).ohmpath.request('testResolveLateAsk'));
-    await page.getByRole('button', { name: 'Camera help', exact: false }).first().click();
+    await page.getByRole('button', { name: 'Live help', exact: false }).first().click();
     await expect(page.locator('.bench-guide-card').getByRole('img', { name: 'Frieren · thinking' })).toHaveCount(0);
     await expect(page.locator('.bench-guide-card').getByRole('img', { name: 'Frieren · neutral' })).toBeVisible();
     expect((await audit()).unexpected).toEqual([]);

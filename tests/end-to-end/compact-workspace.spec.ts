@@ -59,9 +59,17 @@ test('compact offline workspaces keep camera and photo controls reachable', asyn
     await page.getByRole('button', { name: 'Ask about these images' }).scrollIntoViewIfNeeded();
     await expect(page.getByRole('button', { name: 'Ask about these images' })).toBeInViewport();
 
+    await page.setViewportSize({ width: 980, height: 700 });
+    await page.getByRole('navigation', { name: 'Workspace' }).getByRole('button', { name: 'Live help' }).click();
+    await page.getByText('Measurements and circuit tools', { exact: true }).click();
+    await page.locator('.bench-advanced').scrollIntoViewIfNeeded();
+    await page.screenshot({ path: 'runtime/theme-measurements-980.png', timeout: 12000 });
+    await page.setViewportSize({ width: 784, height: 560 });
     await page.getByRole('button', { name: 'Settings', exact: false }).first().click();
     await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible();
     expect((await widthAudit(page)).page).toBeLessThanOrEqual(785);
+    await page.evaluate(() => { window.scrollTo(0, 0); document.querySelector('.scroll-area')?.scrollTo(0, 0); });
+    await page.screenshot({ path: 'runtime/theme-settings-compact.png', timeout: 12000 });
     const audit = await page.evaluate(() => (window as any).ohmpath.request('testAudit'));
     expect(audit.modelCalls).toBe(0);
     await page.close();

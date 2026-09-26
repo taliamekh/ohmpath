@@ -5,7 +5,7 @@ import { resolve } from 'node:path';
 import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 
-test('fixed character pose keeps its face through accelerated long animation phases', async () => {
+test('fixed character pose keeps its head and waist anchored through long animation phases', async () => {
   const requireElectron = createRequire(resolve('package.json'));
   const dataDir = await mkdtemp(resolve(tmpdir(), 'ohmpath-character-longphase-'));
   const desktop = spawn(requireElectron('electron'), [
@@ -55,10 +55,12 @@ test('fixed character pose keeps its face through accelerated long animation pha
         const context = element?.getContext('2d');
         if (!context) throw new Error('Character canvas is unavailable.');
         const regions = {
-          face: { x0: .43, y0: .13, x1: .57, y1: .24 },
+          upperFace: { x0: .43, y0: .12, x1: .61, y1: .16 },
+          lowerFace: { x0: .44, y0: .215, x1: .60, y1: .255 },
+          waist: { x0: .45, y0: .51, x1: .55, y1: .72 },
           outer: { x0: .04, y0: .35, x1: .34, y1: .88 },
         };
-        const hashRegion = (box: typeof regions.face) => {
+        const hashRegion = (box: typeof regions.upperFace) => {
           const ratio = .75;
           const width = Math.floor(Math.min(element.width, element.height * ratio));
           const height = Math.floor(width / ratio);
@@ -74,7 +76,9 @@ test('fixed character pose keeps its face through accelerated long animation pha
           }
           return { hash: hash >>> 0, opaque };
         };
-        const faceHashes = new Set<number>();
+        const upperFaceHashes = new Set<number>();
+        const lowerFaceHashes = new Set<number>();
+        const waistHashes = new Set<number>();
         const outerHashes = new Set<number>();
         let firstPhase = 0;
         let lastPhase = 0;
@@ -86,14 +90,19 @@ test('fixed character pose keeps its face through accelerated long animation pha
           const phase = (window as any).__longPhaseClock().virtualNow;
           if (!firstPhase) firstPhase = phase;
           lastPhase = phase;
-          const face = hashRegion(regions.face);
+          const upperFace = hashRegion(regions.upperFace);
+          const lowerFace = hashRegion(regions.lowerFace);
+          const waist = hashRegion(regions.waist);
           const outer = hashRegion(regions.outer);
-          faceHashes.add(face.hash);
+          upperFaceHashes.add(upperFace.hash);
+          lowerFaceHashes.add(lowerFace.hash);
+          waistHashes.add(waist.hash);
           outerHashes.add(outer.hash);
-          minFaceOpaque = Math.min(minFaceOpaque, face.opaque);
+          minFaceOpaque = Math.min(minFaceOpaque, upperFace.opaque, lowerFace.opaque);
         }
         return { samples: samples - 2, phaseSpanSeconds: (lastPhase - firstPhase) / 1000,
-          maxPhaseSeconds: lastPhase / 1000, faceHashes: [...faceHashes], outerHashCount: outerHashes.size,
+          maxPhaseSeconds: lastPhase / 1000, upperFaceHashes: [...upperFaceHashes],
+          lowerFaceHashes: [...lowerFaceHashes], waistHashes: [...waistHashes], outerHashCount: outerHashes.size,
           minFaceOpaque, canvasWidth: element.width, canvasHeight: element.height };
       });
     } catch (error) {
@@ -101,12 +110,16 @@ test('fixed character pose keeps its face through accelerated long animation pha
       throw error;
     }
     console.log('character long-phase diagnostic', result);
-    if (result.faceHashes.length !== 1 || result.minFaceOpaque <= 50 || result.outerHashCount <= 1 || result.phaseSpanSeconds < 1800) {
+    if (result.upperFaceHashes.length !== 1 || result.lowerFaceHashes.length !== 1
+        || result.waistHashes.length !== 1 || result.minFaceOpaque <= 50
+        || result.outerHashCount <= 1 || result.phaseSpanSeconds < 1800) {
       await page.screenshot({ path: 'runtime/character-longphase-failure.png' });
     }
     expect(result.phaseSpanSeconds).toBeGreaterThanOrEqual(1800);
     expect(result.minFaceOpaque).toBeGreaterThan(50);
-    expect(result.faceHashes, 'central face must remain pixel-stable').toHaveLength(1);
+    expect(result.upperFaceHashes, 'hair and brows must remain pixel-stable').toHaveLength(1);
+    expect(result.lowerFaceHashes, 'lower face must remain pixel-stable').toHaveLength(1);
+    expect(result.waistHashes, 'waist must remain pixel-stable').toHaveLength(1);
     expect(result.outerHashCount, 'outer cloth/arms must animate').toBeGreaterThan(1);
     const finalBox = await canvas.boundingBox();
     expect(finalBox).toEqual(initialBox);

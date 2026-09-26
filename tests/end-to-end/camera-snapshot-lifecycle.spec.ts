@@ -5,7 +5,7 @@ import { resolve } from 'node:path';
 import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 
-test('late camera snapshot is released after leaving Camera help', async () => {
+test('late camera snapshot is released after leaving Live help', async () => {
   const dataDir = await mkdtemp(resolve(tmpdir(), 'ohmpath-late-camera-capture-'));
   const requireElectron = createRequire(resolve('package.json'));
   const desktop = spawn(requireElectron('electron'), [resolve('tests/electron/photo-help-replay-main.cjs'), '--remote-debugging-port=0'], {
@@ -74,7 +74,7 @@ test('late camera snapshot is released after leaving Camera help', async () => {
     await expect(page.getByText('Start with an image')).toBeVisible();
     await expect(page.getByText('Overview snapshot')).toHaveCount(0);
 
-    await page.getByRole('navigation', { name: 'Workspace' }).getByRole('button', { name: 'Camera help' }).click();
+    await page.getByRole('navigation', { name: 'Workspace' }).getByRole('button', { name: 'Live help' }).click();
     await expect(camera).toBeVisible();
     await expect(camera.getByRole('complementary', { name: 'Photo help review' })).toHaveCount(0);
     await expect(camera.getByText('Overview snapshot')).toHaveCount(0);

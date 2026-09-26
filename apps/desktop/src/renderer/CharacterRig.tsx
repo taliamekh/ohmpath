@@ -8,13 +8,15 @@ export type CharacterRigProps = {
   reducedMotion?: boolean;
   aspectRatio?: number;
   mouth?: { x: number; y: number };
+  /** Eye centers in the selected portrait, omitted for expressions with closed eyes. */
+  eyes?: [{ x: number; y: number }, { x: number; y: number }];
 };
 
 type Point = { x: number; y: number };
 type LoadedImage = { src: string; image: HTMLImageElement };
 
-// Mesh knots follow the supplied full-body artwork: ears near 12%, cape near
-// 35%, sleeves below 45%, hem above 80%. The face, core and feet remain fixed.
+// Mesh knots follow the supplied full-body artwork. The face, waist and feet
+// remain fixed; only shoulders, outer sleeves and ears move.
 const X_KNOTS = [0, .12, .18, .24, .30, .36, .42, .5, .58, .64, .70, .76, .82, .88, 1];
 const Y_KNOTS = [0, .06, .10, .13, .16, .20, .28, .36, .44, .52, .60, .68, .76, .82, .88, .94, 1];
 const FRAME_INTERVAL_MS = 1000 / 30;
@@ -36,14 +38,12 @@ function warp(x: number, y: number, width: number, height: number,
   const left = 1 - smooth(.28, .42, u);
   const right = smooth(.58, .72, u);
   const outer = left + right;
-  const direction = right - left;
   const arm = outer * band(v, .39, .48, .76, .89);
-  const cape = outer * band(v, .26, .34, .50, .60);
-  const hem = outer * band(v, .72, .79, .91, 1);
-  const earLeft = band(u, .16, .20, .30, .34) * band(v, .08, .11, .17, .21);
-  const earRight = band(u, .66, .70, .80, .84) * band(v, .08, .11, .17, .21);
+  const chest = band(u, .23, .34, .66, .77) * band(v, .28, .36, .36, .44);
+  const earLeft = band(u, .16, .20, .30, .34) * band(v, .08, .11, .16, .20);
+  const earRight = band(u, .66, .70, .80, .84) * band(v, .08, .11, .16, .20);
   const armWave = Math.sin(seconds * 1.05);
-  const clothWave = Math.sin(seconds * .82 - .45);
+  const breath = .5 + .5 * Math.sin(seconds * 1.55 - .7);
   const earPerk = (.5 + .5 * Math.sin(seconds * .92)) * earAmount;
   // Opposite small rotations around each inner ear root keep the head still.
   const leftAngle = .027 * earPerk * earLeft;
@@ -51,16 +51,49 @@ function warp(x: number, y: number, width: number, height: number,
   const earDx = -leftAngle * (y - .18 * height) - rightAngle * (y - .18 * height);
   const earDy = leftAngle * (x - .33 * width) + rightAngle * (x - .67 * width);
   return {
-    x: x + amount * width * (
-      .012 * arm * armWave * direction +
-      .006 * cape * clothWave * direction +
-      .009 * hem * Math.sin(seconds * .76 - .8) * direction
-    ) + amount * earDx,
+    x: x + amount * width * .004 * arm * armWave + amount * earDx,
     y: y + amount * height * (
-      .0035 * arm * Math.sin(seconds * 1.05 - .55) +
-      .002 * hem * Math.sin(seconds * .76 - 1.2)
+      -.0028 * chest * breath +
+      .0018 * arm * Math.sin(seconds * 1.05 - .55)
     ) + amount * earDy,
   };
+}
+
+function blinkAmount(seconds: number): number {
+  const phase = ((seconds % 4.8) + 4.8) % 4.8;
+  return smooth(3.04, 3.10, phase) * (1 - smooth(3.20, 3.29, phase));
+}
+
+function drawBlink(ctx: CanvasRenderingContext2D, texture: HTMLCanvasElement,
+                   eyes: CharacterRigProps["eyes"], left: number, top: number,
+                   width: number, height: number, closure: number): void {
+  if (!eyes || closure <= 0) return;
+  const source = texture.getContext("2d", { willReadFrequently: true });
+  if (!source) return;
+  ctx.save();
+  ctx.globalAlpha = closure;
+  for (const eye of eyes) {
+    const x = eye.x * width;
+    const y = eye.y * height;
+    // Sample cheek skin below each eye. The patch affects only the eyelid;
+    // the surrounding face and head keep their original artwork and position.
+    const skin = source.getImageData(Math.round(x), Math.round(y + height * .028), 1, 1).data;
+    const centerX = left + x;
+    const centerY = top + y;
+    ctx.fillStyle = `rgb(${skin[0]}, ${skin[1]}, ${skin[2]})`;
+    ctx.beginPath();
+    ctx.ellipse(centerX, centerY, width * .032, height * .015, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = "#473735";
+    ctx.lineWidth = Math.max(.8, width * .0042);
+    ctx.lineCap = "round";
+    ctx.beginPath();
+    ctx.moveTo(centerX - width * .025, centerY + height * .001);
+    ctx.quadraticCurveTo(centerX, centerY + height * .011,
+                         centerX + width * .025, centerY + height * .001);
+    ctx.stroke();
+  }
+  ctx.restore();
 }
 
 function drawTriangle(ctx: CanvasRenderingContext2D, texture: HTMLCanvasElement,
@@ -139,7 +172,7 @@ function unmoved(source: Point, target: Point, left: number, top: number): boole
 /** Deforms selected outer regions of one full-body source image in place. */
 export default function CharacterRig({ src, frame, activity, expression,
                                        reducedMotion = false, aspectRatio = .5,
-                                       mouth }: CharacterRigProps) {
+                                       mouth, eyes }: CharacterRigProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [loaded, setLoaded] = useState<LoadedImage | null>(null);
   const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
@@ -307,6 +340,7 @@ export default function CharacterRig({ src, frame, activity, expression,
           drawTriangle(ctx, texture, [s11, s01, s10], [d11, d01, d10]);
         }
       }
+      if (eyes) drawBlink(ctx, texture, eyes, left, top, width, height, blinkAmount(seconds));
       if (activity === "speaking" && !reducedMotion && !prefersReducedMotion && mouth
           && Number.isFinite(mouth.x) && Number.isFinite(mouth.y)
           && mouth.x >= 0 && mouth.x <= 1 && mouth.y >= 0 && mouth.y <= 1) {
@@ -379,7 +413,8 @@ export default function CharacterRig({ src, frame, activity, expression,
       texture = null;
     };
   }, [loaded, frame?.columns, frame?.rows, frame?.column, frame?.row, frame?.offsetX,
-      activity, reducedMotion, prefersReducedMotion, safeRatio, mouth?.x, mouth?.y]);
+      activity, reducedMotion, prefersReducedMotion, safeRatio, mouth?.x, mouth?.y,
+      eyes?.[0]?.x, eyes?.[0]?.y, eyes?.[1]?.x, eyes?.[1]?.y]);
 
   const fallbackX = spec.columns === 1 ? 0 : (spec.column + spec.offsetX) / (spec.columns - 1) * 100;
   const fallbackY = spec.rows === 1 ? 0 : spec.row / (spec.rows - 1) * 100;

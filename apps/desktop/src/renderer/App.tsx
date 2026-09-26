@@ -14,7 +14,7 @@ type GuideActivity = "idle" | "listening" | "thinking" | "speaking" | "paused" |
 type Capture = { stream: MediaStream; context: AudioContext; source: MediaStreamAudioSourceNode; processor: ScriptProcessorNode; chunks: Float32Array[]; startedAt: number; timer: number; generation: number; sid: string };
 
 const tabs: { id: Tab; label: string; icon: string }[] = [
-  { id: "bench", label: "Camera help", icon: "⌘" },
+  { id: "bench", label: "Live help", icon: "⌘" },
   { id: "photo", label: "Photo help", icon: "▧" },
   { id: "devices", label: "Devices", icon: "⌑" },
   { id: "settings", label: "Settings", icon: "⚙" },
@@ -262,7 +262,7 @@ function App() {
     else if (activity === "thinking") text = "Request in progress.";
     else if (activity === "speaking") text = "Local read-aloud in progress.";
     else if (voiceState === "transcribing") text = "Transcribing with the local speech model.";
-    else text = "Show me a circuit photo or diagram, and tell me what you’re trying to do.";
+    else text = "Choose a camera or add a circuit image.";
     return text;
   }, [tab, visualCaption, confirmation?.readback_text, activity, error, voiceState, voiceStatus]);
 
@@ -304,7 +304,7 @@ function App() {
     && Object.keys(checks).every((key) => session?.setup?.[key] === checks[key])
     && Object.keys(session?.setup ?? {}).every((key) => checks[key] === session?.setup?.[key]);
   const activityLabel: Record<GuideActivity, string> = {
-    idle: "Ready when you are", listening: "Listening", thinking: "Looking into it", speaking: "Speaking",
+    idle: "Ready", listening: "Listening", thinking: "Looking into it", speaking: "Speaking",
     paused: "Guide paused", error: "Let’s try another approach",
   };
   const isManualSession = session?.mode === "supervised";
@@ -793,12 +793,14 @@ function App() {
 
   return (
     <div className={`app-shell journey-theme${reducedMotion ? " reduce-motion" : ""}`}>
+      <div className="window-titlebar"><span className="window-titlebar-logo" aria-hidden="true" /><span>Ohm Path</span></div>
       <aside className="sidebar">
         <div className="brand-lockup journey-brand">
           <div className="brand-mark" aria-hidden="true" />
-          <div><strong>Ohm Path</strong><small>A LITTLE GUIDANCE GOES FAR</small></div>
+          <div><strong>Ohm Path</strong></div>
         </div>
-        <div className="workspace-label">CHOOSE YOUR PATH</div>
+        <div className="trail-signpost">
+        <div className="workspace-label">Choose your path</div>
         <nav className="side-nav journey-nav" aria-label="Workspace">
           {tabs.map((item) => (
             <button className={`nav-item ${tab === item.id ? "selected" : ""}`} key={item.id} title={item.label} aria-current={tab === item.id ? "page" : undefined} onClick={() => { setTab(item.id); if (item.id !== "bench") { setCameraReview(false); setCameraReviewVisible(false); } }}>
@@ -806,6 +808,7 @@ function App() {
             </button>
           ))}
         </nav>
+        </div>
         <div className="sidebar-spacer" />
         <div className="sidebar-safety">
           <span className="safety-dot" />
@@ -825,7 +828,7 @@ function App() {
 
         <div className="scroll-area">
           {photoWorkspaceVisited && <div hidden={tab !== "photo"}>
-            {showGuide && tab === "photo" && <aside className="photo-guide-strip panel" aria-label="Guide companion"><FrierenGuide activity={activity} expression={guideExpression} reducedMotion={reducedMotion} compact /><div><strong>Frieren <span>{activityLabel[activity]}</span></strong><p>{companionCaption}</p></div><button className="text-button" onClick={() => { setGuideExpression("happy"); setVisualCaption("Glad that helped. Let’s keep going."); }}>That worked ✓</button><button className="text-button" onClick={() => setShowGuide(false)} aria-label="Hide guide">×</button></aside>}
+            {showGuide && tab === "photo" && <aside className="photo-guide-strip panel" aria-label="Guide companion"><FrierenGuide activity={activity} expression={guideExpression} reducedMotion={reducedMotion} compact /><div><strong>Frieren <span>{activityLabel[activity]}</span></strong><p>{companionCaption}</p></div><button className="text-button" onClick={() => { setGuideExpression("happy"); setVisualCaption("That worked."); }}>That worked ✓</button><button className="text-button" onClick={() => setShowGuide(false)} aria-label="Hide guide">×</button></aside>}
             <PhotoHelpPage active={tab === "photo"} prefillQuestion={tab === "photo" ? investigatorPrefill : ""} onPrefillConsumed={() => setInvestigatorPrefill("")} onActivity={photoActivity} speechAvailable={false} />
           </div>}
           {tab === "devices" ? (
@@ -836,12 +839,7 @@ function App() {
             <SettingsPage reducedMotion={reducedMotion} onReducedMotion={setReducedMotion} showGuide={showGuide} onShowGuide={setShowGuide} subtitlesEnabled={subtitlesEnabled} onSubtitles={changeSubtitles} localSpeechEnabled={localSpeechEnabled} onLocalSpeech={toggleLocalSpeech} localVoice={localVoice} voiceStatus={voiceStatus} reasoningStatus={health?.reasoning} companionEnabled={companionEnabled} companionBusy={companionBusy} companionError={companionError} onCompanion={setFloatingCompanion} />
           ) : tab === "bench" ? (
             <>
-              <section className="page-heading">
-                <div>
-                  <div className="eyebrow">SEE IT. UNDERSTAND IT. FIX IT.</div>
-                  <h1>Let’s look at your circuit <span className="heading-spark">✳</span></h1>
-                  <p>Connect a camera, choose a view, and ask for help. Or start with a photo.</p>
-                </div>
+              <div className="live-session-tools">
                 <details className="session-picker"><summary>Saved bench sessions</summary><div>
                   <label htmlFor="session-select">SESSION</label>
                   <select id="session-select" value={sessionId} onChange={(event) => run("session", () => loadSession(event.target.value))}>
@@ -853,7 +851,7 @@ function App() {
                   <button className="text-button new-session-toggle" onClick={() => setShowNewSession((visible) => !visible)}>{showNewSession ? "Close new session" : "+ New session"}</button>
                   {showNewSession && <div className="new-session-popover"><label className="session-name-field"><span>SESSION NAME</span><input value={newSessionName} onChange={(event) => setNewSessionName(event.target.value)} maxLength={100} /></label><SessionModeOptions value={newSessionMode} onChange={setNewSessionMode} /><button className="button primary" onClick={createSession} disabled={Boolean(busy)}>{busy === "create" ? "Creating…" : `Create ${newSessionMode === "supervised" ? "manual" : "practice"} bench`}<span>→</span></button><small>Creating a session does not start a test or take a measurement.</small></div>}
                 </div></details>
-              </section>
+              </div>
 
               {visualPaused && <div className="camera-resume"><span>Camera previews stopped.</span><button className="button secondary small" onClick={() => setVisualPaused(false)} disabled={!health}>Resume camera workspace</button></div>}
               <div className="camera-guide-layout">
@@ -866,7 +864,7 @@ function App() {
                       <PhotoHelpPage initialCapture={photoCapture} onCaptureConsumed={() => setPhotoCapture(undefined)} onActivity={photoActivity} speechAvailable={false} />
                     </div>
                   </div> : undefined} />
-                {showGuide && <aside className="bench-guide-card panel"><span className="eyebrow">YOUR CIRCUIT COMPANION</span><h2>Frieren</h2><FrierenGuide activity={activity} expression={guideExpression} reducedMotion={reducedMotion} /><p>{companionCaption}</p><button className="button secondary" onClick={() => setTab("photo")}>Upload a photo or diagram <span>↗</span></button><button className="text-button" onClick={() => { setGuideExpression("smug"); setVisualCaption("There. A little patience does help."); }}>That worked ✓</button><button className="text-button" onClick={() => { setGuideExpression("weary"); setVisualCaption("Hm. Then we’re still missing something. Show me what changed, and we’ll try another approach."); }}>Still stuck</button></aside>}
+                {showGuide && <aside className="bench-guide-card panel"><span className="eyebrow">YOUR CIRCUIT COMPANION</span><h2>Frieren</h2><FrierenGuide activity={activity} expression={guideExpression} reducedMotion={reducedMotion} /><p>{companionCaption}</p><button className="button secondary" onClick={() => setTab("photo")}>Upload a photo or diagram <span>↗</span></button><button className="text-button" onClick={() => { setGuideExpression("smug"); setVisualCaption("That worked."); }}>That worked ✓</button><button className="text-button" onClick={() => { setGuideExpression("weary"); setVisualCaption("Hm. Then we’re still missing something. Show me what changed, and we’ll try another approach."); }}>Still stuck</button></aside>}
               </div>
 
               <details className="service-details"><summary>Connection status</summary><section className="status-ribbon" aria-label="Service status">
@@ -902,7 +900,7 @@ function App() {
                 <section className="welcome-card">
                   <div className="welcome-art"><GuidePortrait activity={activity} reducedMotion={reducedMotion} /></div>
                   <div className="welcome-copy">
-                    <div className="eyebrow">A SAFE PLACE TO START</div>
+                    <div className="eyebrow">BENCH SESSION</div>
                     <h2>Set up a bench session</h2>
                     <p>Choose a practice scenario or manual entry. Choosing a mode does not perform a test, activate an instrument, or take a reading.</p>
                     <label className="welcome-session-name"><span>SESSION NAME</span><input value={newSessionName} onChange={(event) => setNewSessionName(event.target.value)} maxLength={100} /></label>
@@ -994,7 +992,7 @@ function App() {
         <footer className="app-footer"><span>Ohm Path · {isManualSession ? "Manual user-reported entry" : "Local practice environment"}</span><span>Visual guidance is not electrical verification.</span></footer>
       </main>
 
-      {showGuide && tab !== "bench" && tab !== "settings" && tab !== "photo" && <aside className="guide-float" aria-label="Guide companion"><div className="guide-float-head"><span className="guide-mini-dot" /><span>FRIEREN</span><button onClick={() => setShowGuide(false)} aria-label="Hide guide">×</button></div><div className="guide-float-body"><FrierenGuide activity={activity} expression={guideExpression} reducedMotion={reducedMotion} compact /><div><strong>{activityLabel[activity]}</strong><small>{companionCaption}</small><button className="text-button" onClick={() => { setGuideExpression("happy"); setVisualCaption("Glad that helped. Let’s keep going."); }}>That worked ✓</button></div></div></aside>}
+      {showGuide && tab !== "bench" && tab !== "settings" && tab !== "photo" && <aside className="guide-float" aria-label="Guide companion"><div className="guide-float-head"><span className="guide-mini-dot" /><span>FRIEREN</span><button onClick={() => setShowGuide(false)} aria-label="Hide guide">×</button></div><div className="guide-float-body"><FrierenGuide activity={activity} expression={guideExpression} reducedMotion={reducedMotion} compact /><div><strong>{activityLabel[activity]}</strong><small>{companionCaption}</small><button className="text-button" onClick={() => { setGuideExpression("happy"); setVisualCaption("That worked."); }}>That worked ✓</button></div></div></aside>}
     </div>
   );
 }
@@ -1112,7 +1110,7 @@ function SettingsPage({ reducedMotion, onReducedMotion, showGuide, onShowGuide, 
   onCompanion: (enabled: boolean) => void;
 }) {
   return <div className="settings-page">
-    <div className="page-heading settings-heading"><div><div className="eyebrow">MAKE YOURSELF AT HOME</div><h1>Settings</h1><p>Your guide, voice connection, and optional turret.</p></div></div>
+    <div className="page-heading settings-heading"><div><h1>Settings</h1><p>Your guide, voice connection, and optional turret.</p></div></div>
     <div className="settings-grid">
       <ElevenLabsSettings />
       <TurretSettings />
