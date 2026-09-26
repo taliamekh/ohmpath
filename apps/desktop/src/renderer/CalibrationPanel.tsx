@@ -20,9 +20,9 @@ const syntheticExample = {
   ],
 };
 
-function pretty(value: unknown): string {
-  if (value === undefined || value === null) return "Not reported";
-  return typeof value === "string" ? value : JSON.stringify(value, null, 2);
+function displayNumber(value: unknown): string {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "Not available";
+  return value !== 0 && Math.abs(value) < 0.001 ? value.toExponential(2) : value.toFixed(3);
 }
 
 function unpack<T>(raw: unknown): T {
@@ -42,8 +42,8 @@ function readSamples(text: string): { fit_samples: Sample[]; validation_samples:
   if (!parsed || !Array.isArray(parsed.fit_samples) || !Array.isArray(parsed.validation_samples)) {
     throw new Error("Include both fit_samples and validation_samples arrays.");
   }
-  if (parsed.fit_samples.length < 3 || parsed.fit_samples.length > SAMPLE_MAX || parsed.validation_samples.length < 1 || parsed.validation_samples.length > SAMPLE_MAX) {
-    throw new Error(`Provide 3–${SAMPLE_MAX} fit observations and 1–${SAMPLE_MAX} separate validation observations.`);
+  if (parsed.fit_samples.length < 4 || parsed.fit_samples.length > SAMPLE_MAX || parsed.validation_samples.length < 2 || parsed.validation_samples.length > SAMPLE_MAX) {
+    throw new Error(`Provide 4–${SAMPLE_MAX} fit observations and 2–${SAMPLE_MAX} separate validation observations.`);
   }
   for (const [group, samples] of [["fit_samples", parsed.fit_samples], ["validation_samples", parsed.validation_samples]] as const) {
     for (const [index, sample] of samples.entries()) {
@@ -125,8 +125,7 @@ export default function CalibrationPanel({ sid }: { sid: string }) {
 
   const candidate = result?.candidate;
   const jacobian = candidate?.calibration?.jacobian_px_per_degree;
-  const fitResiduals = candidate ? { rms_px: candidate.fit_rms_residual_px } : null;
-  const heldOutResiduals = candidate ? { rms_px: candidate.validation_rms_residual_px, maximum_px: candidate.validation_max_residual_px } : null;
+  const reasons = Array.isArray(candidate?.rejection_reasons) ? candidate.rejection_reasons : [];
 
   return <section className="panel calibration-panel">
     <div className="device-section-head calibration-heading"><div><span className="eyebrow">OFFLINE DATA CHECK</span><h2>Yaw/pitch calibration candidate</h2><p>Review the local motion-to-image mapping and held-out residuals without applying a calibration.</p></div><span className="calibration-pending">PHYSICAL VERIFICATION PENDING</span></div>
@@ -137,13 +136,18 @@ export default function CalibrationPanel({ sid }: { sid: string }) {
     </div>
     {source === "synthetic" && <p className="calibration-synthetic-note">Synthetic ground truth: J = [[12, 3], [-2, 15]] px/degree. The 4 fitting observations and 2 held-out observations are generated examples, not camera measurements.</p>}
     <label className="calibration-json-field"><span>OBSERVATIONS · JSON · MAX {SAMPLE_LIMIT.toLocaleString()} CHARACTERS</span><textarea value={samplesText} maxLength={SAMPLE_LIMIT} spellCheck={false} onChange={(event) => { setSamplesText(event.target.value.slice(0, SAMPLE_LIMIT)); setResult(null); }} placeholder={'{\n  "fit_samples": [{ "yaw_deg": 0, "pitch_deg": 0, "dx_px": 0, "dy_px": 0 }],\n  "validation_samples": [{ "yaw_deg": 1, "pitch_deg": 1, "dx_px": 15, "dy_px": 13 }]\n}'} disabled={busy} /></label>
-    <p className="calibration-format-note">Each row is one paired angular command and observed pixel displacement. Keep validation observations separate; the checker does not treat them as fit data.</p>
+    <p className="calibration-format-note">Use at least 4 fitting observations and 2 separate validation observations. Each row pairs an angular change with its observed pixel displacement. Validation observations must cover both axes and must not repeat fitting rows.</p>
     <div className="calibration-actions"><button className="button primary" onClick={() => void checkSamples()} disabled={!sid || busy || !samplesText.trim()}>{busy ? "Checking samples…" : "Check calibration samples"}<span>→</span></button><span>Uses the current circuit revision as context only; it does not apply the returned candidate.</span></div>
     {error && <div className="inline-error" role="status">{error}</div>}
     {result && candidate && <div className="calibration-result" aria-live="polite">
       <div className="calibration-result-head"><strong>Candidate result</strong><span className="revision-tag">CIRCUIT {result.circuit_revision}</span></div>
       <div className="calibration-summary-grid"><div><span>STATUS</span><strong>{String(candidate.status ?? "Not reported")}</strong></div><div><span>SOURCE</span><strong>{result.source === "synthetic" ? "Synthetic demonstration" : "User supplied"}</strong></div><div><span>HARDWARE</span><strong>{candidate.hardware_armed === false ? "Disabled" : "Not enabled by this candidate check"}</strong></div></div>
-      <div className="calibration-result-grid"><div><span>JACOBIAN · PX / DEGREE</span><pre>{pretty(jacobian)}</pre></div><div><span>FIT RESIDUALS · PX</span><pre>{pretty(fitResiduals)}</pre></div><div><span>HELD-OUT RESIDUALS · PX</span><pre>{pretty(heldOutResiduals)}</pre></div><div><span>REASONS</span><pre>{pretty(candidate.rejection_reasons)}</pre></div></div>
+      <div className="calibration-result-grid">
+        <div><span>PREDICTED IMAGE CHANGE PER 1°</span>{Array.isArray(jacobian) && jacobian.length === 2 ? <table className="calibration-matrix"><thead><tr><th>Image direction</th><th>Yaw</th><th>Pitch</th></tr></thead><tbody><tr><th>Horizontal</th><td>{displayNumber(jacobian[0]?.[0])} px</td><td>{displayNumber(jacobian[0]?.[1])} px</td></tr><tr><th>Vertical</th><td>{displayNumber(jacobian[1]?.[0])} px</td><td>{displayNumber(jacobian[1]?.[1])} px</td></tr></tbody></table> : <p>No usable motion map was accepted.</p>}</div>
+        <div><span>FIT ERROR · ROOT MEAN SQUARE</span><p className="calibration-metric">{displayNumber(candidate.fit_rms_residual_px)} px</p><small>Agreement with the observations used to fit the map.</small></div>
+        <div><span>SEPARATE VALIDATION ERROR</span><p className="calibration-metric">{displayNumber(candidate.validation_rms_residual_px)} px <small>RMS</small></p><small>Largest error: {displayNumber(candidate.validation_max_residual_px)} px. These observations were not used to fit the map.</small></div>
+        <div><span>CHECK RESULT</span>{reasons.length ? <ul>{reasons.map((reason: string, index: number) => <li key={index}>{String(reason).replaceAll("_", " ")}</li>)}</ul> : <p>No statistical rejection was reported. Physical calibration remains unverified.</p>}</div>
+      </div>
       <p>Physical verification: <strong>{String(candidate.physical_verification ?? "pending")}</strong>. This candidate remains unapplied.</p>
     </div>}
   </section>;
