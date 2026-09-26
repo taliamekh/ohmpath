@@ -154,7 +154,9 @@ ipcMain.handle('ohmpath:companion-hide', event => {
 
 ipcMain.handle('ohmpath:request', async (event, action, payload) => {
   if (!trustedSender(event) || typeof action !== 'string' || payload === null || typeof payload !== 'object'
-      || JSON.stringify(payload).length > (['transcribe', 'photoTranscribe'].includes(action) ? 2100000 : action === 'photoImportCapture' ? 2701000 : 60000)) throw new Error('Invalid application message.');
+      || JSON.stringify(payload).length > (['transcribe', 'photoTranscribe'].includes(action) ? 2100000 : action === 'photoImportCapture' ? 2701000 : action === 'visionFrame' ? 701000 : 60000)) throw new Error('Invalid application message.');
+  if (action === 'visionFrame') return callBench('/v1/vision/track', 'POST', payload);
+  if (action === 'visionReset') return callBench('/v1/vision/reset', 'POST', { context_id: payload.context_id });
   if (action === 'turretStatus') return turretPreference.status();
   if (action === 'setTurretEnabled') return turretPreference.set(payload.enabled);
   if (action === 'phonePhotoStatus') return phonePhotoStatus();

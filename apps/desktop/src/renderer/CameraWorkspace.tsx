@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import "./camera-workspace.css";
+import VisionOverlay from "./VisionOverlay";
 
 export type CameraCapture = {
   data_url: string;
@@ -96,6 +97,8 @@ export default function CameraWorkspace({ paused, onSnapshot, onActivity, guide,
   const [clock, setClock] = useState(Date.now());
   const [focused, setFocused] = useState(false);
   const [localSubtitlesEnabled, setLocalSubtitlesEnabled] = useState(true);
+  const [trackingEnabled, setTrackingEnabled] = useState(false);
+  const piImageRef = useRef<HTMLImageElement | null>(null);
   const workspaceRef = useRef<HTMLElement | null>(null);
   const focusButtonRef = useRef<HTMLButtonElement | null>(null);
   const focusedRef = useRef(false);
@@ -496,11 +499,17 @@ export default function CameraWorkspace({ paused, onSnapshot, onActivity, guide,
     <div className={`camera-workspace-stage camera-workspace-stage-${layout}`}>
       <div className="camera-workspace-feed camera-workspace-overview">
         <video ref={videoRef} autoPlay muted playsInline className={overviewEnabled ? "is-visible" : ""} aria-label="Local overview camera preview" />
+        <VisionOverlay source="overview" enabled={trackingEnabled && snapshotSource === "overview" && overviewEnabled && !paused}
+          getFrame={() => videoRef.current && videoRef.current.readyState >= 2 && Date.now() - lastOverviewFrameAt.current <= 1000
+            ? { media: videoRef.current, stamp: videoRef.current.currentTime } : null} />
         {!overviewEnabled && <div className="camera-workspace-empty"><span className="camera-workspace-empty-icon">◉</span><strong>Overview camera is off</strong><span>Connect a USB camera or an iPhone camera app listed by Windows.</span></div>}
         <div className="camera-workspace-feed-label"><span className={overviewEnabled ? "camera-workspace-dot is-live" : "camera-workspace-dot"} /> Overview <small>{overviewEnabled ? "Local preview" : "Not connected"}</small></div>
       </div>
       <div className="camera-workspace-feed camera-workspace-pi">
-        {freshPiFrame ? <img src={freshPiFrame.url} alt="Latest Raspberry Pi camera frame" /> : <div className="camera-workspace-empty"><span className="camera-workspace-empty-icon">◎</span><strong>{piConnected ? "Waiting for a current frame" : "Pi camera is off"}</strong><span>{piConnected ? "The preview clears when the frame is stale." : "Connect through an existing local tunnel."}</span></div>}
+        {freshPiFrame ? <img ref={piImageRef} src={freshPiFrame.url} alt="Latest Raspberry Pi camera frame" /> : <div className="camera-workspace-empty"><span className="camera-workspace-empty-icon">◎</span><strong>{piConnected ? "Waiting for a current frame" : "Pi camera is off"}</strong><span>{piConnected ? "The preview clears when the frame is stale." : "Connect through an existing local tunnel."}</span></div>}
+        <VisionOverlay source="pi" enabled={trackingEnabled && snapshotSource === "pi" && Boolean(freshPiFrame) && !paused}
+          getFrame={() => freshPiFrame && piImageRef.current?.complete && piImageRef.current.naturalWidth > 0 && Date.now() - freshPiFrame.receivedAt <= 1000
+            ? { media: piImageRef.current, stamp: freshPiFrame.receivedAt } : null} />
         <div className="camera-workspace-feed-label"><span className={freshPiFrame ? "camera-workspace-dot is-live" : "camera-workspace-dot"} /> Pi close-up <small>{freshPiFrame ? "Current frame" : piConnected ? "No current frame" : "Not connected"}</small></div>
       </div>
       {focused && guide && <div className="camera-workspace-focus-guide" aria-label="Guide companion">{guide}</div>}
@@ -520,6 +529,11 @@ export default function CameraWorkspace({ paused, onSnapshot, onActivity, guide,
       <p>Only your selected snapshot is shared for this question. Preview is not continuous analysis.</p>
     </div>
     {snapshotError && <p className="camera-workspace-error" role="status">{snapshotError}</p>}
+    <div className="camera-vision-controls">
+      <button type="button" className="button secondary small" disabled={paused || !currentSource} aria-pressed={trackingEnabled}
+        onClick={() => setTrackingEnabled(value => !value)}>{trackingEnabled ? "Stop visual tracking" : "Track a point locally"}</button>
+      <p>Follow a selected feature in the chosen view. Frames stay on this computer; Ask sends a separate snapshot for circuit help.</p>
+    </div>
 
     <details className="camera-workspace-setup">
       <summary>Camera setup <span>{overviewEnabled ? selectedCameraName || "Overview connected" : "Overview off"} · {piConnected ? "Pi connected" : "Pi off"}</span></summary>

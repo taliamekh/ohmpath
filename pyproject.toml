@@ -7,7 +7,7 @@ name = "ohmpath"
 version = "0.1.0"
 description = "Local evidence-led electronics bench assistant"
 requires-python = ">=3.12"
-dependencies = ["fastapi==0.135.2", "uvicorn==0.42.0", "pydantic==2.12.5", "jsonschema==4.26.0", "defusedxml==0.7.1", "httpx==0.28.1"]
+dependencies = ["fastapi==0.135.2", "uvicorn==0.42.0", "pydantic==2.12.5", "jsonschema==4.26.0", "defusedxml==0.7.1", "httpx==0.28.1", "opencv-python-headless==4.12.0.88", "numpy==2.2.6"]
 
 [project.optional-dependencies]
 dev = ["pytest==9.0.2", "ruff==0.15.7"]
