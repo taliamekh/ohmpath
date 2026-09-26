@@ -23,6 +23,26 @@ from .photo_runtime import run_photo_turn
 
 MAX_IMAGE_BYTES = 2_000_000
 MAX_PIXELS = 8_000_000
+GENERIC_FAILURE_MESSAGE = "Photo help stopped without a validated answer. Please retry."
+FAILURE_MESSAGES = {
+    "not_chatgpt_subscription": "Sign in to Codex with a ChatGPT subscription, then try again.",
+    "astra_capability_unavailable": "The required image-capable Codex model is unavailable. Check model access, then try again.",
+    "allowance_margin_reached": "Codex subscription allowance is too low. Wait for it to reset, then try again.",
+    "ordinary_subscription_usage_unavailable": "Codex subscription usage is unavailable. Check usage in Codex, then try again.",
+    "codex_allowance_unavailable": "Codex subscription allowance is unavailable. Check usage in Codex, then try again.",
+    "codex_version_mismatch": "The installed Codex version does not match this build. Update Codex, then try again.",
+    "codex_config_unavailable": "Photo help could not read local Codex settings. Check the installation, then try again.",
+    "cannot_disable_inherited_mcp": "Photo help could not restrict inherited Codex tools. Check the configuration, then try again.",
+    "conflicting_inherited_mcp": "Photo help could not restrict inherited Codex tools. Check the configuration, then try again.",
+    "turn_timeout": "Photo help timed out. Try again.",
+    "invalid_model_output": "The answer could not be validated for these images. Ask again with the current images.",
+    "stale_photo_output": "The answer did not match the current images. Ask again with the current images.",
+    "unexpected_server_request": "Photo help stopped an unexpected model action. Check Codex settings, then try again.",
+    "disallowed_model_action_observed": "Photo help stopped an unexpected model action. Check Codex settings, then try again.",
+    "effective_config_not_restricted": "Photo help could not verify restricted Codex settings. Check the configuration, then try again.",
+    "unexpected_mcp_server_inventory": "Photo help could not verify restricted Codex settings. Check the configuration, then try again.",
+    "model_or_permission_rerouted": "Codex changed the selected model or read-only permissions. Check settings, then try again.",
+}
 
 
 def _bad_image() -> DomainError:
@@ -184,6 +204,17 @@ class PhotoHelp:
         with self.lock:
             return any(job["worker"].is_alive() for job in self.jobs.values())
 
+    @staticmethod
+    def _discard_media(job: dict) -> None:
+        job["images"] = None
+        for path in job.get("paths", ()):
+            try:
+                path.unlink(missing_ok=True)
+            except OSError:
+                # A decoder may briefly hold the file on Windows. The owning
+                # TemporaryDirectory removes it once the cancelled turn exits.
+                pass
+
     def start(self, context_id: str, question: str, images: list[dict]) -> dict:
         context_id = _uuid(context_id)
         if not isinstance(question, str) or not 1 <= len(question.strip()) <= 4000:
@@ -230,7 +261,7 @@ class PhotoHelp:
                       "image_revision": revision}
             job = {"turn_id": turn_id, "context_id": context_id, "revision": revision,
                    "question": question, "images": decoded, "history": history,
-                   "cancel": cancel, "result": result}
+                   "cancel": cancel, "result": result, "paths": []}
             worker = threading.Thread(target=self._work, args=(job,), daemon=True)
             job["worker"] = worker
             self.jobs[turn_id] = job
@@ -244,11 +275,19 @@ class PhotoHelp:
             with tempfile.TemporaryDirectory(prefix="ohmpath-photo-images-") as directory:
                 os.chmod(directory, 0o700)
                 paths = []
-                for index, (image_id, mime_type, raw) in enumerate(job["images"]):
-                    path = Path(directory) / f"image-{index}{'.png' if mime_type == 'image/png' else '.jpg'}"
-                    path.write_bytes(raw)
-                    paths.append((image_id, path))
-                job["images"] = None
+                # Serialize file creation with cancel/close. A cancelled start
+                # cannot recreate a file after cancellation removed it.
+                with self.lock:
+                    if self.closed or job["cancel"].is_set():
+                        return
+                    for index, (image_id, mime_type, raw) in enumerate(job["images"]):
+                        path = Path(directory) / f"image-{index}{'.png' if mime_type == 'image/png' else '.jpg'}"
+                        path.write_bytes(raw)
+                        paths.append((image_id, path))
+                        job["paths"].append(path)
+                    job["images"] = None
+                if job["cancel"].is_set():
+                    return
                 answer = self.runner(job["context_id"], job["revision"], job["question"],
                                      paths, job["history"], job["cancel"])
             # Validate even an injected runner; only the validated shape reaches UI.
@@ -269,19 +308,17 @@ class PhotoHelp:
             with self.lock:
                 if self.closed or job["cancel"].is_set():
                     return
-                allowed = {"not_chatgpt_subscription", "astra_capability_unavailable",
-                           "allowance_margin_reached", "ordinary_subscription_usage_unavailable",
-                           "codex_allowance_unavailable", "codex_version_mismatch",
-                           "codex_config_unavailable", "turn_timeout", "invalid_model_output",
-                           "stale_photo_output", "unexpected_server_request",
-                           "disallowed_model_action_observed", "effective_config_not_restricted",
-                           "unexpected_mcp_server_inventory", "model_or_permission_rerouted"}
-                code = str(error) if isinstance(error, ProofFailure) and str(error) in allowed else "photo_help_failed"
+                code = (str(error) if isinstance(error, ProofFailure) and str(error) in FAILURE_MESSAGES
+                        else "photo_help_failed")
                 job["result"] = {"turn_id": job["turn_id"], "status": "failed",
                                  "context_id": job["context_id"], "image_revision": job["revision"],
-                                 "error": code, "message": "Photo help stopped without a validated answer. Please retry."}
+                                 "error": code, "message": FAILURE_MESSAGES.get(code, GENERIC_FAILURE_MESSAGE)}
         finally:
-            job["images"] = None
+            with self.lock:
+                self._discard_media(job)
+                job["paths"] = []
+                job["question"] = ""
+                job["history"] = []
 
     def status(self, turn_id: str) -> dict:
         with self.lock:
@@ -310,6 +347,10 @@ class PhotoHelp:
                     elif turn_id is None and job["result"]["status"] == "completed":
                         job["result"] = {"turn_id": job["turn_id"], "status": "stale",
                                          "context_id": context_id, "image_revision": job["revision"]}
+                    if turn_id is None or job["cancel"].is_set():
+                        self._discard_media(job)
+                        job["question"] = ""
+                        job["history"] = []
             return self.status(turn_id) if turn_id else {"status": "cancelled", "context_id": context_id}
 
     def close(self) -> None:
@@ -318,7 +359,18 @@ class PhotoHelp:
             workers = []
             for job in self.jobs.values():
                 job["cancel"].set()
+                if job["result"]["status"] == "running":
+                    job["result"] = {"turn_id": job["turn_id"], "status": "cancelled",
+                                     "context_id": job["context_id"], "image_revision": job["revision"]}
+                elif job["result"]["status"] == "completed":
+                    job["result"] = {"turn_id": job["turn_id"], "status": "stale",
+                                     "context_id": job["context_id"], "image_revision": job["revision"]}
+                self._discard_media(job)
+                job["question"] = ""
+                job["history"] = []
                 workers.append(job["worker"])
+            self.contexts.clear()
+            self.cancelled_contexts.clear()
         for worker in workers:
             if worker is not threading.current_thread():
                 worker.join(timeout=5)

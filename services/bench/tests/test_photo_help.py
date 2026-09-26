@@ -7,9 +7,12 @@ import time
 import zlib
 from uuid import uuid4
 
+import pytest
 from fastapi.testclient import TestClient
 
 from ohmpath.api.app import create_app
+from ohmpath.ai.photo_help import PhotoHelp
+from ohmpath.ai.live_proof import ProofFailure
 
 
 USER = "u" * 40
@@ -206,3 +209,117 @@ def test_photo_admission_rejects_active_legacy_investigation(tmp_path):
         assert rejected.status_code == 429
         assert not app.state.photo_help.jobs
         released.set()
+
+
+def test_cancel_removes_temporary_pixels_before_blocked_runner_returns():
+    entered = threading.Event()
+    released = threading.Event()
+    paths = []
+
+    def waiting_runner(_, __, ___, images, ____, _____):
+        paths.extend(path for _, path in images)
+        entered.set()
+        released.wait(timeout=2)
+        return answer(images[0][0])
+
+    manager = PhotoHelp(waiting_runner)
+    payload = request()
+    started = manager.start(payload["context_id"], payload["question"], payload["images"])
+    try:
+        assert entered.wait(timeout=1)
+        assert all(path.exists() for path in paths)
+        assert manager.cancel(payload["context_id"], started["turn_id"])["status"] == "cancelled"
+        assert all(not path.exists() for path in paths)
+        assert manager.status(started["turn_id"])["status"] == "cancelled"
+    finally:
+        released.set()
+        manager.close()
+
+
+def test_cancel_before_worker_writes_never_creates_photo_or_runs_model():
+    called = []
+    manager = PhotoHelp(lambda *args: called.append(args))
+    payload = request()
+    with manager.lock:
+        started = manager.start(payload["context_id"], payload["question"], payload["images"])
+        manager.cancel(payload["context_id"])
+    manager.close()
+    assert called == []
+    assert manager.status(started["turn_id"])["status"] == "cancelled"
+    assert manager.jobs[started["turn_id"]]["images"] is None
+
+
+def test_shutdown_removes_temporary_pixels_while_runner_is_blocked():
+    entered = threading.Event()
+    released = threading.Event()
+    paths = []
+
+    def waiting_runner(_, __, ___, images, ____, _____):
+        paths.extend(path for _, path in images)
+        entered.set()
+        released.wait(timeout=2)
+        return answer(images[0][0])
+
+    manager = PhotoHelp(waiting_runner)
+    payload = request()
+    started = manager.start(payload["context_id"], payload["question"], payload["images"])
+    assert entered.wait(timeout=1)
+    assert all(path.exists() for path in paths)
+    closer = threading.Thread(target=manager.close)
+    try:
+        closer.start()
+        deadline = time.monotonic() + 1
+        while any(path.exists() for path in paths) and time.monotonic() < deadline:
+            time.sleep(.01)
+        assert all(not path.exists() for path in paths)
+        assert manager.status(started["turn_id"])["status"] == "cancelled"
+    finally:
+        released.set()
+        closer.join(timeout=2)
+
+
+def test_shutdown_drops_completed_answers_and_followup_history():
+    manager = PhotoHelp(lambda _, __, ___, images, ____, _____: answer(images[0][0]))
+    payload = request()
+    started = manager.start(payload["context_id"], payload["question"], payload["images"])
+    deadline = time.monotonic() + 1
+    while manager.status(started["turn_id"])["status"] == "running" and time.monotonic() < deadline:
+        time.sleep(.01)
+    assert manager.status(started["turn_id"])["status"] == "completed"
+    assert manager.contexts[payload["context_id"]]["history"]
+    manager.close()
+    result = manager.status(started["turn_id"])
+    assert result["status"] == "stale" and "answer" not in result
+    assert not manager.contexts and not manager.cancelled_contexts
+
+
+@pytest.mark.parametrize(("failure", "expected_code", "expected_message"), [
+    (ProofFailure("not_chatgpt_subscription"), "not_chatgpt_subscription", "Sign in to Codex"),
+    (ProofFailure("allowance_margin_reached"), "allowance_margin_reached", "Wait for it to reset"),
+    (ProofFailure("astra_capability_unavailable"), "astra_capability_unavailable", "Check model access"),
+    (ProofFailure("effective_config_not_restricted"), "effective_config_not_restricted", "Check the configuration"),
+    (ProofFailure("cannot_disable_inherited_mcp"), "cannot_disable_inherited_mcp", "Check the configuration"),
+    (ProofFailure("turn_timeout"), "turn_timeout", "timed out"),
+    (RuntimeError("secret C:\\private\\token-123"), "photo_help_failed", "Please retry"),
+])
+def test_photo_failures_are_actionable_or_generic_without_retained_answer(failure, expected_code, expected_message):
+    def failing_runner(*_):
+        raise failure
+
+    manager = PhotoHelp(failing_runner)
+    payload = request()
+    started = manager.start(payload["context_id"], payload["question"], payload["images"])
+    try:
+        deadline = time.monotonic() + 1
+        result = manager.status(started["turn_id"])
+        while result["status"] == "running" and time.monotonic() < deadline:
+            time.sleep(.01)
+            result = manager.status(started["turn_id"])
+        assert result["status"] == "failed"
+        assert result["error"] == expected_code
+        assert expected_message in result["message"]
+        assert "secret" not in json.dumps(result)
+        assert "answer" not in result
+        assert manager.contexts[payload["context_id"]]["history"] == []
+    finally:
+        manager.close()

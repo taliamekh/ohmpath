@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import queue
 import tempfile
 import threading
 import time
@@ -89,7 +90,34 @@ def run_photo_turn(context_id: str, image_revision: str, question: str,
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
                     raise ProofFailure("turn_timeout")
-                return protocol.request(method, params, timeout=min(timeout, remaining))
+                # Protocol.request waits for a whole RPC timeout and has no cancel
+                # argument. Keep that single RPC off this worker so cancellation
+                # and the total turn deadline can close the child promptly.
+                result: queue.Queue[tuple[bool, Any]] = queue.Queue(maxsize=1)
+
+                def receive_response() -> None:
+                    try:
+                        result.put_nowait((True, protocol.request(method, params,
+                                                                 timeout=min(timeout, remaining))))
+                    except Exception as error:
+                        result.put_nowait((False, error))
+
+                threading.Thread(target=receive_response, daemon=True).start()
+                while True:
+                    if cancel_event.is_set():
+                        raise ProofFailure("photo_cancelled")
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        raise ProofFailure("turn_timeout")
+                    try:
+                        succeeded, value = result.get(timeout=min(.05, remaining))
+                    except queue.Empty:
+                        continue
+                    if cancel_event.is_set():
+                        raise ProofFailure("photo_cancelled")
+                    if not succeeded:
+                        raise value
+                    return value
 
             request("initialize", {"clientInfo": {
                 "name": "ohmpath_photo", "title": "Ohm Path Photo Help", "version": "0.1.0",

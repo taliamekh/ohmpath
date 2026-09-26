@@ -2,6 +2,7 @@
 
 import json
 import threading
+import time
 
 import pytest
 
@@ -177,3 +178,55 @@ def test_runtime_rejects_execution_item(replay):
         photo_runtime.run_photo_turn(CONTEXT, REVISION, "Question",
                                      [(IMAGE_ID, replay)], [], threading.Event())
     assert FakeProtocol.last.closed
+
+
+def test_runtime_cancel_interrupts_blocked_preflight_rpc(replay, monkeypatch):
+    entered = threading.Event()
+    released = threading.Event()
+    cancel = threading.Event()
+    calls = []
+
+    class BlockedPreflight(FakeProtocol):
+        def request(self, method, params=None, timeout=10):
+            calls.append(method)
+            if method == "config/read":
+                entered.set()
+                released.wait(timeout=2)
+            return super().request(method, params, timeout)
+
+    monkeypatch.setattr(photo_runtime, "Protocol", BlockedPreflight)
+    canceller = threading.Thread(target=lambda: (entered.wait(timeout=1), cancel.set()))
+    canceller.start()
+    started = time.monotonic()
+    try:
+        with pytest.raises(ProofFailure, match="photo_cancelled"):
+            photo_runtime.run_photo_turn(CONTEXT, REVISION, "Question",
+                                         [(IMAGE_ID, replay)], [], cancel)
+        assert time.monotonic() - started < 1
+        assert FakeProtocol.last.closed
+        assert calls == ["initialize", "config/read"]
+    finally:
+        released.set()
+        canceller.join(timeout=1)
+
+
+def test_runtime_deadline_interrupts_blocked_preflight_rpc(replay, monkeypatch):
+    released = threading.Event()
+
+    class BlockedPreflight(FakeProtocol):
+        def request(self, method, params=None, timeout=10):
+            if method == "config/read":
+                released.wait(timeout=2)
+            return super().request(method, params, timeout)
+
+    monkeypatch.setattr(photo_runtime, "Protocol", BlockedPreflight)
+    monkeypatch.setattr(photo_runtime, "MAX_TURN_SECONDS", .15)
+    started = time.monotonic()
+    try:
+        with pytest.raises(ProofFailure, match="turn_timeout"):
+            photo_runtime.run_photo_turn(CONTEXT, REVISION, "Question",
+                                         [(IMAGE_ID, replay)], [], threading.Event())
+        assert time.monotonic() - started < .75
+        assert FakeProtocol.last.closed
+    finally:
+        released.set()
