@@ -1,0 +1,9 @@
+# Optional investigation images
+
+`Investigations.start(session_id, question, *, image_bytes=None)` accepts an optional user-reviewed PNG or JPEG alongside a text question. The image is limited to 2,000,000 bytes and is checked for a bounded image header/dimensions with the same local header validator used by meter OCR. This check does not start OCR or require an OCR executable.
+
+When an image is supplied, the service snapshots the immutable bytes and records only `image_attached` and a SHA-256 digest in the started event. The worker creates a private temporary directory, writes the snapshot using its validated `.png` or `.jpg` extension, and passes that path to the investigation runner as `image_path`. The runner may read the file during its call. The temporary directory is removed when the call succeeds, fails, or returns after cancellation; `close()` signals cancellation and joins workers for up to five seconds so a cancellation-aware runner can clean up. The job releases its byte snapshot in all worker exit paths. A forced process termination cannot run Python cleanup, so normal application shutdown should call `close()`; an abrupt kill may leave a private temporary directory that requires local cleanup.
+
+Text-only calls retain the existing runner signature and do not pass an `image_path` keyword. Runner/provider exception messages are never returned to the user because they could disclose a temporary path. The image bytes and path are not placed in the session event ledger by this lifecycle layer. No image is captured, selected, or sent automatically; the caller is responsible for user review and explicit send consent. Image context is not a confirmed measurement or physical evidence.
+
+The API layer may decode an image before calling this method, but it must enforce the same bounded input and user-consent policy. No hardware, camera, or model runtime is needed to validate these boundaries or run the unit tests.
