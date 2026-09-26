@@ -50,8 +50,15 @@ export default function TroubleshootPage({ sessionId, circuitRevision, contextEp
   const [investigationBusy, setInvestigationBusy] = useState(false);
   const [investigationError, setInvestigationError] = useState("");
   const mountedRef = useRef(true);
-  const activeSessionRef = useRef(sessionId);
-  activeSessionRef.current = sessionId;
+  const contextRef = useRef({ sessionId, circuitRevision, contextEpoch, version: 0 });
+  if (contextRef.current.sessionId !== sessionId || contextRef.current.circuitRevision !== circuitRevision || contextRef.current.contextEpoch !== contextEpoch) {
+    contextRef.current = { sessionId, circuitRevision, contextEpoch, version: contextRef.current.version + 1 };
+  }
+  const assemblyRequestRef = useRef(0);
+  const firmwareRequestRef = useRef(0);
+  const investigationRequestRef = useRef(0);
+  const current = (version: number, request: number, activeRequest: { current: number }) =>
+    mountedRef.current && contextRef.current.version === version && activeRequest.current === request;
   const turnRef = useRef<{ session_id: string; turn_id: string } | null>(null);
   const pollTimerRef = useRef<number | null>(null);
 
@@ -59,6 +66,9 @@ export default function TroubleshootPage({ sessionId, circuitRevision, contextEp
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
+      assemblyRequestRef.current += 1;
+      firmwareRequestRef.current += 1;
+      investigationRequestRef.current += 1;
       onStopSpeaking?.();
       if (pollTimerRef.current !== null) window.clearTimeout(pollTimerRef.current);
       const turn = turnRef.current;
@@ -68,12 +78,17 @@ export default function TroubleshootPage({ sessionId, circuitRevision, contextEp
   }, []);
 
   useEffect(() => {
+    assemblyRequestRef.current += 1;
+    firmwareRequestRef.current += 1;
+    investigationRequestRef.current += 1;
     const previousTurn = turnRef.current;
     onStopSpeaking?.();
     if (pollTimerRef.current !== null) window.clearTimeout(pollTimerRef.current);
     pollTimerRef.current = null;
     turnRef.current = null;
     if (previousTurn) void action("investigateCancel", { sid: previousTurn.session_id, turn_id: previousTurn.turn_id }).catch(() => undefined);
+    setAssemblyBusy(false);
+    setFirmwareBusy(false);
     setInvestigationBusy(false);
     setAssemblyError("");
     setFirmwareError("");
@@ -93,20 +108,24 @@ export default function TroubleshootPage({ sessionId, circuitRevision, contextEp
 
   async function loadAssemblyPlan() {
     if (!sessionId) return;
+    const version = contextRef.current.version;
+    const request = ++assemblyRequestRef.current;
     setAssemblyBusy(true);
     setAssemblyError("");
     try {
       const result = await action<RecordLike>("assemblyPlan", { sid: sessionId });
-      if (!mountedRef.current || activeSessionRef.current !== sessionId) return;
+      if (!current(version, request, assemblyRequestRef)) return;
       setAssembly(result);
       setStepChecks({});
     } catch (problem) {
-      if (mountedRef.current && activeSessionRef.current === sessionId) setAssemblyError(problem instanceof Error ? problem.message : "The assembly guide could not be loaded.");
-    } finally { if (activeSessionRef.current === sessionId) setAssemblyBusy(false); }
+      if (current(version, request, assemblyRequestRef)) setAssemblyError(problem instanceof Error ? problem.message : "The assembly guide could not be loaded.");
+    } finally { if (current(version, request, assemblyRequestRef)) setAssemblyBusy(false); }
   }
 
   async function analyzeFirmware() {
     if (!sessionId || !logText.trim()) return;
+    const version = contextRef.current.version;
+    const request = ++firmwareRequestRef.current;
     setFirmwareBusy(true);
     setFirmwareError("");
     try {
@@ -115,26 +134,33 @@ export default function TroubleshootPage({ sessionId, circuitRevision, contextEp
         ...(board.trim() ? { board: board.trim() } : {}),
         ...(baudRate ? { baud_rate: baudRate } : {}),
       });
-      if (!mountedRef.current || activeSessionRef.current !== sessionId) return;
+      if (!current(version, request, firmwareRequestRef)) return;
       setFirmware(result);
     } catch (problem) {
-      if (mountedRef.current && activeSessionRef.current === sessionId) setFirmwareError(problem instanceof Error ? problem.message : "The supplied log could not be analyzed.");
-    } finally { if (activeSessionRef.current === sessionId) setFirmwareBusy(false); }
+      if (current(version, request, firmwareRequestRef)) setFirmwareError(problem instanceof Error ? problem.message : "The supplied log could not be analyzed.");
+    } finally { if (current(version, request, firmwareRequestRef)) setFirmwareBusy(false); }
   }
 
-  async function pollTurn(session_id: string, turn_id: string) {
+  function invalidateFirmwareInput() {
+    firmwareRequestRef.current += 1;
+    setFirmwareBusy(false);
+    setFirmware(null);
+    setFirmwareError("");
+  }
+
+  async function pollTurn(session_id: string, turn_id: string, version: number, request: number) {
     try {
       const status = await action<RecordLike>("investigateStatus", { sid: session_id, turn_id });
-      if (!mountedRef.current || activeSessionRef.current !== session_id || turnRef.current?.turn_id !== turn_id) return;
+      if (!current(version, request, investigationRequestRef) || turnRef.current?.turn_id !== turn_id) return;
       setInvestigation(status);
       if (status.status === "running") {
-        pollTimerRef.current = window.setTimeout(() => { void pollTurn(session_id, turn_id); }, 900);
+        pollTimerRef.current = window.setTimeout(() => { void pollTurn(session_id, turn_id, version, request); }, 900);
       } else {
         turnRef.current = null;
         setInvestigationBusy(false);
       }
     } catch (problem) {
-      if (!mountedRef.current || activeSessionRef.current !== session_id || turnRef.current?.turn_id !== turn_id) return;
+      if (!current(version, request, investigationRequestRef) || turnRef.current?.turn_id !== turn_id) return;
       turnRef.current = null;
       setInvestigationBusy(false);
       setInvestigationError(problem instanceof Error ? problem.message : "Could not retrieve investigation status.");
@@ -143,23 +169,25 @@ export default function TroubleshootPage({ sessionId, circuitRevision, contextEp
 
   async function askInvestigator(attachImage = false) {
     if (!sessionId || !question.trim() || investigationBusy) return;
+    const version = contextRef.current.version;
+    const request = ++investigationRequestRef.current;
     setInvestigationBusy(true);
     setInvestigationError("");
     setInvestigation(null);
     try {
       const started = await action<RecordLike>(attachImage ? "investigateWithImage" : "investigateStart", { sid: sessionId, question: question.trim().slice(0, 4000) });
-      if (started.cancelled) { setInvestigationBusy(false); return; }
-      if (!started.turn_id) throw new Error("The investigation did not return a turn ID.");
-      if (!mountedRef.current || activeSessionRef.current !== sessionId) {
-        void action("investigateCancel", { sid: sessionId, turn_id: started.turn_id }).catch(() => undefined);
+      if (!current(version, request, investigationRequestRef)) {
+        if (started.turn_id) void action("investigateCancel", { sid: sessionId, turn_id: started.turn_id }).catch(() => undefined);
         return;
       }
+      if (started.cancelled) { setInvestigationBusy(false); return; }
+      if (!started.turn_id) throw new Error("The investigation did not return a turn ID.");
       turnRef.current = { session_id: sessionId, turn_id: started.turn_id };
       setInvestigation(started);
-      if (started.status === "running") pollTimerRef.current = window.setTimeout(() => { void pollTurn(sessionId, started.turn_id); }, 450);
+      if (started.status === "running") pollTimerRef.current = window.setTimeout(() => { void pollTurn(sessionId, started.turn_id, version, request); }, 450);
       else { turnRef.current = null; setInvestigationBusy(false); }
     } catch (problem) {
-      if (!mountedRef.current || activeSessionRef.current !== sessionId) return;
+      if (!current(version, request, investigationRequestRef)) return;
       setInvestigationBusy(false);
       setInvestigationError(problem instanceof Error ? problem.message : "Could not start the investigation.");
     }
@@ -167,16 +195,21 @@ export default function TroubleshootPage({ sessionId, circuitRevision, contextEp
 
   async function cancelInvestigation() {
     const turn = turnRef.current;
-    if (!turn) return;
+    const version = contextRef.current.version;
+    const request = ++investigationRequestRef.current;
     if (pollTimerRef.current !== null) window.clearTimeout(pollTimerRef.current);
+    pollTimerRef.current = null;
+    turnRef.current = null;
     setInvestigationError("");
+    setInvestigationBusy(false);
+    setInvestigation({ status: "cancelled", message: "This turn was cancelled." });
+    if (!turn) return;
     try {
       const result = await action<RecordLike>("investigateCancel", { sid: turn.session_id, turn_id: turn.turn_id });
-      turnRef.current = null;
-      if (mountedRef.current && activeSessionRef.current === turn.session_id) setInvestigation(result);
+      if (current(version, request, investigationRequestRef)) setInvestigation(result);
     } catch (problem) {
-      if (mountedRef.current && activeSessionRef.current === turn.session_id) setInvestigationError(problem instanceof Error ? problem.message : "The investigation could not be cancelled.");
-    } finally { if (activeSessionRef.current === turn.session_id) setInvestigationBusy(false); }
+      if (current(version, request, investigationRequestRef)) setInvestigationError(problem instanceof Error ? problem.message : "The investigation could not be cancelled.");
+    }
   }
 
   const steps = assembly?.steps ?? [];
@@ -207,8 +240,8 @@ export default function TroubleshootPage({ sessionId, circuitRevision, contextEp
     <div className="troubleshoot-two-col">
       <section className="panel troubleshooting-panel firmware-panel">
         <div className="troubleshoot-heading"><div><span className="eyebrow">FIRMWARE LOG REVIEW</span><h2>Share a serial or build log</h2><p>Analysis is read-only and limited to text you provide here.</p></div><span className="readonly-stamp">READ ONLY</span></div>
-        <div className="firmware-fields"><label><span>BOARD (OPTIONAL)</span><input value={board} onChange={(event) => setBoard(event.target.value)} maxLength={80} placeholder="e.g. Arduino Uno" /></label><label><span>BAUD RATE</span><select value={baudRate} onChange={(event) => setBaudRate(Number(event.target.value))}><option value={9600}>9600</option><option value={57600}>57600</option><option value={115200}>115200</option><option value={230400}>230400</option></select></label></div>
-        <label className="firmware-log-field"><span>PASTE LOG TEXT · MAX 20,000 CHARACTERS</span><textarea value={logText} maxLength={20000} onChange={(event) => setLogText(event.target.value)} placeholder="Paste the text you copied from your serial monitor or build output…" /></label>
+        <div className="firmware-fields"><label><span>BOARD (OPTIONAL)</span><input value={board} onChange={(event) => { invalidateFirmwareInput(); setBoard(event.target.value); }} maxLength={80} placeholder="e.g. Arduino Uno" /></label><label><span>BAUD RATE</span><select value={baudRate} onChange={(event) => { invalidateFirmwareInput(); setBaudRate(Number(event.target.value)); }}><option value={9600}>9600</option><option value={57600}>57600</option><option value={115200}>115200</option><option value={230400}>230400</option></select></label></div>
+        <label className="firmware-log-field"><span>PASTE LOG TEXT · MAX 20,000 CHARACTERS</span><textarea value={logText} maxLength={20000} onChange={(event) => { invalidateFirmwareInput(); setLogText(event.target.value); }} placeholder="Paste the text you copied from your serial monitor or build output…" /></label>
         <div className="firmware-submit-row"><small>Ohm Path will not connect to a board, run commands, or flash firmware.</small><button className="button primary" onClick={analyzeFirmware} disabled={!sessionId || !logText.trim() || firmwareBusy}>{firmwareBusy ? "Reviewing text…" : "Analyze supplied log"}<span>→</span></button></div>
         {firmwareError && <div className="inline-error">{firmwareError}</div>}
         {firmware && <div className="firmware-result">
