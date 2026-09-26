@@ -100,3 +100,20 @@ Use stable readable error names such as `measurement_context_changed`, `calibrat
 Schema tests must include missing units, impossible references, expired commands, duplicate events, out-of-order notifications, reconnects, a delayed voice confirmation, firmware mismatch, and a board change during a model turn.
 
 Also test a meter-mode or power change without a graph revision, conflicting payloads for the same command ID, stale arming epochs, and an MCP request to a user-only confirmation endpoint.
+
+## Photo help (implemented additive user API)
+
+Photo help is independent of circuit sessions. It never inherits a practice graph, writes accepted measurements, creates actuator commands, or supplies model tools.
+
+- `POST /v1/photo-help/investigate`: `{context_id, question, images}`. IDs are UUIDs, question is 1–4,000 characters, and images contain 1–3 `{image_id, mime_type, image_base64}` records. Accept PNG/JPEG only, at most 2,000,000 decoded bytes and 8 megapixels per image. Main-process native decoding/re-encoding strips original metadata; HTTP validation independently checks bounded image structure. The larger 8.2 MB request cap applies only to this exact route.
+- `GET /v1/photo-help/{turn_id}` returns `{turn_id,status,context_id,image_revision,answer?}`. `image_revision` is a SHA-256 string over the ordered image identities/content. Status is `running`, `completed`, `failed`, `cancelled`, or `stale`.
+- `answer` contains `explanation`, `observations`, `questions`, `next_steps`, `annotations`, and `limitations`. Each of at most eight annotations has a current `image_id`, normalized finite `x,y` in [0,1], and bounded `label`. These are suggested visual locations, never calibrated physical targets or verified electrical facts.
+- `POST /v1/photo-help/cancel`: `{context_id,turn_id?}`. Context-only cancellation also removes follow-up history, invalidates completed answers and records a bounded cancellation tombstone so a racing late start fails. The interface creates a fresh context after Stop or an image change. Late initial responses receive another explicit cancel.
+
+All three routes require the local user capability; the model capability cannot access them. One shared admission lock prevents simultaneous circuit/photo investigators. The runtime verifies the selected subscription/model/allowance, disables provider fallback, exposes zero dynamic or MCP tools, bounds the entire preflight/turn to 90 seconds and removes temporary image files. The last three completed question/explanation pairs can accompany follow-ups for the same images. Contexts/jobs are bounded in memory and are not durable evidence.
+
+Renderer photo IPC passes main-process-owned opaque image IDs. `photoImportCapture` imports only a user-selected snapshot; its renderer timestamp is a freshness guard, not independent proof of physical camera state. Image selection/import does not initiate a model request. An explicit Ask sends the selected pixels and question.
+
+`turretStatus` / `setTurretEnabled` are local preference IPC, not actuator authorization. Their returned `connected`, `motion_enabled` and `laser_enabled` are false in this build. Enabling the preference does not bypass pairing, calibration, arming or physical acceptance prerequisites.
+
+Companion state adds optional presentation-only `expression`: `neutral`, `thinking`, `stumped`, or `happy`. It cannot change reasoning, evidence, measurement acceptance or safety. Mouth animation follows an actual playback activity callback; animation assets do not constitute voice verification.
