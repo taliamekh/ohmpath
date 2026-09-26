@@ -30,3 +30,15 @@ test('snapshot validation bounds memory, time, media type and selected image cou
   store.clear();
   assert.throws(() => store.selected([selected[0].image_id]), /no longer/);
 });
+
+test('uploads retain only the first sanitized encoding without re-encoding it', () => {
+  let encodes = 0;
+  const native = { createFromBuffer: () => ({ isEmpty: () => false, getSize: () => ({ width: 1, height: 1 }),
+    toPNG() { encodes += 1; return png; } }) };
+  const store = createPhotoImages(native);
+  const image = store.addUpload(png, 'circuit.png');
+  assert.equal(encodes, 1);
+  assert.equal(image.resized, false);
+  assert.equal(image.original_width, 1);
+  assert.equal(store.selected([image.image_id])[0].image_base64, png.toString('base64'));
+});

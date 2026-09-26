@@ -1,5 +1,6 @@
 const { randomUUID } = require('node:crypto');
 const { dimensions, prepareReviewedImage } = require('./reviewed-image.cjs');
+const { preparePhotoUpload } = require('./photo-upload.cjs');
 
 const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 
@@ -7,19 +8,30 @@ const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 // when asking a question; they cannot substitute paths or arbitrary payloads.
 function createPhotoImages(nativeImage) {
   const images = new Map();
-  function add(bytes, name) {
+  function addPixels(pixels, name) {
     if (images.size >= 8) throw new Error('Remove a selected image before adding another.');
-    const image_base64 = prepareReviewedImage(bytes, nativeImage);
-    const pixels = Buffer.from(image_base64, 'base64');
     const { width, height } = dimensions(pixels);
+    const image_base64 = pixels.toString('base64');
     const mime_type = pixels[0] === 137 ? 'image/png' : 'image/jpeg';
     const image_id = randomUUID();
     const safeName = String(name).replace(/[\x00-\x1f\x7f]/g, '').slice(0, 120);
     images.set(image_id, { image_id, mime_type, image_base64 });
     return { image_id, data_url: `data:${mime_type};base64,${image_base64}`, name: safeName, width, height };
   }
+  function add(bytes, name) {
+    if (images.size >= 8) throw new Error('Remove a selected image before adding another.');
+    return addPixels(Buffer.from(prepareReviewedImage(bytes, nativeImage), 'base64'), name);
+  }
   return {
     add,
+    addUpload(bytes, name) {
+      if (images.size >= 8) throw new Error('Remove a selected image before adding another.');
+      const prepared = preparePhotoUpload(bytes, nativeImage);
+      // Store these freshly encoded pixels directly. A second JPEG encode could
+      // increase the size again or unnecessarily lose detail.
+      return { ...addPixels(prepared.bytes, name), original_width: prepared.originalWidth,
+        original_height: prepared.originalHeight, resized: prepared.resized };
+    },
     capture(payload) {
       if (!['overview', 'pi'].includes(payload.source) || !Number.isFinite(payload.captured_at)
           || Math.abs(Date.now() - payload.captured_at) > 10000) throw new Error('Take a fresh snapshot from the camera view.');
