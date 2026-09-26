@@ -1,0 +1,29 @@
+{
+  "schema_version": "1.0.0",
+  "name": "laboratory-models",
+  "description": "Parameters for bounded educational RC transient and generic silicon-diode sweep templates. These are simulator-only models, not physical measurements or a vendor-specific diode characterization.",
+  "rc_step_transient": {
+    "resistance_ohm": 1000.0,
+    "capacitance_f": 1e-6,
+    "supply_v": 3.3,
+    "time_constant_s": 0.001,
+    "expected_voltage_at_one_tau_v": 2.0859,
+    "expected_trace_points": 201
+  },
+  "educational_silicon_diode": {
+    "model_id": "ohmpath.educational-shockley-silicon.v1",
+    "resistance_ohm": 1000.0,
+    "maximum_supply_v": 3.3,
+    "sweep_points": 101,
+    "ngspice_parameters": {
+      "saturation_current_a": 2.52e-9,
+      "emission_factor": 1.752,
+      "series_resistance_ohm": 0.568,
+      "temperature_c": 27.0,
+      "junction_capacitance_f": 4e-12,
+      "junction_potential_v": 0.75,
+      "transit_time_s": 4e-9
+    },
+    "status": "fixed educational ngspice model; not vendor certified"
+  }
+}
