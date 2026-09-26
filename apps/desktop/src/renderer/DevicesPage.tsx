@@ -4,6 +4,7 @@ import CalibrationPanel from "./CalibrationPanel";
 type RecordLike = Record<string, any>;
 type CameraDevice = { deviceId: string; label: string; groupId: string };
 type Point = { x: number; y: number };
+type PiVideoStatus = { connected: boolean; state: string; reason?: string; fresh_frame: boolean; source: string };
 type AimFrame = {
   target_pixel: Point | number[];
   crosshair_pixel: Point | number[];
@@ -146,6 +147,13 @@ export default function DevicesPage({ sid, paused, onStop }: { sid: string; paus
       } else {
         setPiFrame("");
         setPiLastFrameAt(null);
+        const status = await action<PiVideoStatus>("piVideoStatus", {});
+        if (!mountedRef.current || pausedRef.current || generation !== piGenerationRef.current) return;
+        if (status.connected !== true) {
+          stopPiPolling();
+          setPiError(status.reason || "The Pi camera connection stopped. Check the local tunnel and enter a fresh video token to reconnect.");
+          return;
+        }
       }
       piPollTimerRef.current = window.setTimeout(() => { void pollPiFrame(generation); }, 200);
     } catch (problem) {

@@ -1,6 +1,7 @@
 const MAX_FRAME_BYTES = 5 * 1024 * 1024;
 const MAX_BUFFER_BYTES = MAX_FRAME_BYTES + 65536;
 const BOUNDARY = Buffer.from('--ohmpath-video-frame');
+const SOURCE = 'Raspberry Pi camera via an existing local tunnel';
 
 class PiVideoClient {
   constructor() { this.disconnect(); }
@@ -10,13 +11,30 @@ class PiVideoClient {
     this.controller = null;
     this.frame = null;
     this.connected = false;
+    this.state = 'disconnected';
+    this.reason = null;
     this.generation = (this.generation || 0) + 1;
     return { connected: false };
+  }
+  fail(state, reason) {
+    this.disconnect();
+    this.state = state;
+    this.reason = reason;
+  }
+  status() {
+    return {
+      connected: this.connected,
+      state: this.state,
+      ...(this.reason ? { reason: this.reason } : {}),
+      fresh_frame: Boolean(this.connected && this.frame && Date.now() - this.frame.received_at <= 2000),
+      source: SOURCE,
+    };
   }
   async connect(port, token) {
     if (!Number.isInteger(port) || port < 1024 || port > 65535 || typeof token !== 'string'
       || token.length < 32 || token.length > 256 || !/^[!-~]+$/.test(token)) throw new Error('Enter a valid local tunnel port and per-launch video token.');
     this.disconnect();
+    this.state = 'connecting';
     const generation = this.generation;
     const controller = new AbortController();
     this.controller = controller;
@@ -39,13 +57,22 @@ class PiVideoClient {
       if (!response.ok || !response.body || !response.headers.get('content-type')?.startsWith('multipart/x-mixed-replace; boundary=ohmpath-video-frame')) throw new Error('The Pi camera stream is unavailable.');
       if (generation !== this.generation) throw new Error('The camera connection was cancelled.');
       this.connected = true;
+      this.state = 'waiting';
       this.lastData = Date.now();
-      this.timer = setInterval(() => { if (Date.now() - this.lastData > 5000) this.disconnect(); }, 1000);
+      this.timer = setInterval(() => {
+        if (Date.now() - this.lastData > 5000) this.fail('stalled', 'No Pi camera frame arrived for five seconds. Check the local tunnel and reconnect.');
+      }, 1000);
       this.timer.unref?.();
-      void this.readFrames(response.body, generation).catch(() => { if (generation === this.generation) this.disconnect(); });
-      return { connected: true, source: 'Raspberry Pi camera via an existing local tunnel' };
+      void this.readFrames(response.body, generation).catch(error => {
+        if (generation !== this.generation) return;
+        const invalid = /^(Invalid|Oversized) camera/.test(error?.message || '');
+        this.fail('failed', invalid
+          ? 'The Pi camera sent an invalid frame. Check the video service and reconnect.'
+          : 'The Pi camera stream stopped. Check the local tunnel and reconnect.');
+      });
+      return { connected: true, source: SOURCE };
     } catch {
-      if (generation === this.generation) this.disconnect();
+      if (generation === this.generation) this.fail('failed', 'Could not connect to the Pi camera. Check the local tunnel, video service and per-launch token.');
       throw new Error('Could not connect to the Pi camera. Check the local tunnel, video service and per-launch token.');
     }
   }
@@ -77,12 +104,13 @@ class PiVideoClient {
           if (generation !== this.generation) return;
           this.lastData = Date.now();
           this.frame = { jpeg_base64: jpeg.toString('base64'), received_at: this.lastData };
+          this.state = 'streaming';
           buffer = buffer.subarray(frameEnd + 2);
         }
       }
+      if (generation === this.generation) throw new Error('Pi camera stream ended.');
     } finally {
       reader.releaseLock();
-      if (generation === this.generation) this.disconnect();
     }
   }
   latest() {

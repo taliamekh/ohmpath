@@ -7,6 +7,9 @@ export type PhotoHelpImage = {
   name: string;
   width: number;
   height: number;
+  original_width?: number;
+  original_height?: number;
+  resized?: boolean;
 };
 
 type Annotation = { image_id: string; x: number; y: number; label: string };
@@ -243,7 +246,7 @@ export default function PhotoHelpPage({ initialCapture, onCaptureConsumed, prefi
       setTurns((current) => [...current, { id: result.turn_id, question: askedQuestion, answer }].slice(-4));
       setActiveNote(null);
       setError("");
-      activity("idle", answer.explanation);
+      activity("idle", speakText(answer));
     } else if (result.status === "cancelled") {
       activity("idle");
     } else {
@@ -317,7 +320,7 @@ export default function PhotoHelpPage({ initialCapture, onCaptureConsumed, prefi
             {notes.map((note, index) => <button type="button" key={`${selected.image_id}-${index}`} className={`photo-help-marker ${activeNote === index ? "active" : ""}`} style={{ left: `${note.x * 100}%`, top: `${note.y * 100}%` }} title={note.label} aria-label={`Annotation ${index + 1}: ${note.label}`} onClick={() => setActiveNote(activeNote === index ? null : index)}><span>{index + 1}</span><b className={note.x > .64 ? "left" : ""}>{note.label}</b></button>)}
           </div>
         </div> : <div className="photo-help-empty"><span className="photo-help-empty-icon" aria-hidden="true">▧</span><strong>Start with an image</strong><p>Add a photo of your circuit or a diagram you want to understand.</p><button type="button" className="button primary" onClick={chooseImage} disabled={choosing}>{choosing ? "Opening…" : "Add a photo or diagram"}<span>＋</span></button><small>PNG or JPEG · up to 3 images</small></div>}
-        <div className="photo-help-visual-foot"><span>{selected ? `${selected.width} × ${selected.height} · ${notes.length ? `${notes.length} marked ${notes.length === 1 ? "detail" : "details"}` : "No marked details yet"}` : "No camera needed"}</span><span>Visual guidance is not a confirmed measurement.</span></div>
+        <div className="photo-help-visual-foot"><span>{selected ? `${selected.width} × ${selected.height}${selected.resized ? " · Resized locally" : ""} · ${notes.length ? `${notes.length} marked ${notes.length === 1 ? "detail" : "details"}` : "No marked details yet"}` : "No camera needed"}</span><span>Visual guidance is not a confirmed measurement.</span></div>
       </section>
 
       <aside className="photo-help-side">

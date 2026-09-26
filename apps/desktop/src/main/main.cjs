@@ -11,6 +11,7 @@ const { createPhotoImages, UUID } = require('./photo-images.cjs');
 const { createTurretPreference } = require('./turret-preference.cjs');
 const piVideo = new PiVideoClient();
 const photoImages = createPhotoImages(nativeImage);
+const { MAX_UPLOAD_BYTES } = require('./photo-upload.cjs');
 
 const root = resolve(__dirname, '../../../..');
 if (process.env.OHMPATH_DATA_DIR) app.setPath('userData', join(process.env.OHMPATH_DATA_DIR, 'desktop'));
@@ -136,20 +137,20 @@ ipcMain.handle('ohmpath:request', async (event, action, payload) => {
     if (selected.canceled || selected.filePaths.length !== 1) return { cancelled: true };
     const source = selected.filePaths[0];
     const stat = await fs.promises.lstat(source);
-    if (!stat.isFile() || stat.isSymbolicLink() || stat.size > 2000000) throw new Error('Choose a local PNG or JPEG under 2 MB.');
+    if (!stat.isFile() || stat.isSymbolicLink() || stat.size > MAX_UPLOAD_BYTES) throw new Error('Choose a local PNG or JPEG under 16 MB.');
     const handle = await fs.promises.open(source, 'r');
     try {
       const opened = await handle.stat();
-      if (!opened.isFile() || opened.size > 2000000) throw new Error('Choose a local PNG or JPEG under 2 MB.');
-      const bytes = Buffer.alloc(2000001);
+      if (!opened.isFile() || opened.size > MAX_UPLOAD_BYTES) throw new Error('Choose a local PNG or JPEG under 16 MB.');
+      const bytes = Buffer.alloc(MAX_UPLOAD_BYTES + 1);
       let length = 0;
       while (length < bytes.length) {
         const result = await handle.read(bytes, length, bytes.length - length, null);
         if (!result.bytesRead) break;
         length += result.bytesRead;
       }
-      if (length > 2000000) throw new Error('Choose a local PNG or JPEG under 2 MB.');
-      return { image: photoImages.add(bytes.subarray(0, length), require('node:path').basename(source)) };
+      if (length > MAX_UPLOAD_BYTES) throw new Error('Choose a local PNG or JPEG under 16 MB.');
+      return { image: photoImages.addUpload(bytes.subarray(0, length), require('node:path').basename(source)) };
     } finally { await handle.close(); }
   }
   if (action === 'photoImportCapture') return { image: photoImages.capture(payload) };
@@ -191,6 +192,7 @@ ipcMain.handle('ohmpath:request', async (event, action, payload) => {
   if (action === 'disableCamera') { cameraAllowed = false; return { allowed: false }; }
   if (action === 'piVideoConnect') return piVideo.connect(payload.port, payload.token);
   if (action === 'piVideoFrame') return piVideo.latest();
+  if (action === 'piVideoStatus') return piVideo.status();
   if (action === 'piVideoDisconnect') return piVideo.disconnect();
   if (action === 'pause' || action === 'stop' || action === 'selectFixture') {
     piVideo.disconnect(); microphoneAllowed = false; cameraAllowed = false;

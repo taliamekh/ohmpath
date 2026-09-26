@@ -85,8 +85,19 @@ function App() {
   const [guideExpression, setGuideExpression] = useState<GuideExpression>("neutral");
   const [visualCaption, setVisualCaption] = useState("");
   const [photoCapture, setPhotoCapture] = useState<PhotoHelpImage>();
+  const pendingPhotoCaptureRef = useRef<PhotoHelpImage | undefined>(undefined);
+  pendingPhotoCaptureRef.current = photoCapture;
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [visualPaused, setVisualPaused] = useState(false);
+  const [cameraReview, setCameraReview] = useState(false);
+  const [cameraReviewVisible, setCameraReviewVisible] = useState(false);
+  const snapshotGenerationRef = useRef(0);
+  const snapshotMountedRef = useRef(true);
+  const snapshotContextRef = useRef({ tab, paused: visualPaused || !health });
+  snapshotContextRef.current = { tab, paused: visualPaused || !health };
+  const [subtitlesEnabled, setSubtitlesEnabled] = useState(() => {
+    try { return localStorage.getItem("ohmpath.subtitles") !== "off"; } catch { return true; }
+  });
   const [voiceStatus, setVoiceStatus] = useState<AnyRecord | null>(null);
   const [voiceState, setVoiceState] = useState<"idle" | "requesting" | "recording" | "transcribing">("idle");
   const [recordingSeconds, setRecordingSeconds] = useState(0);
@@ -241,8 +252,8 @@ function App() {
   const confirmation = session?.confirmation;
   const companionCaption = useMemo(() => {
     let text = "";
-    if (visualCaption) text = visualCaption;
-    else if (readbackAcknowledged && confirmation?.readback_text) text = confirmation.readback_text;
+    if (tab === "bench" && confirmation?.readback_text) text = confirmation.readback_text;
+    else if (visualCaption) text = visualCaption;
     else if (activity === "paused") text = "Session paused. No physical output is enabled.";
     else if (activity === "error") text = error || "A local operation needs attention.";
     else if (activity === "listening") text = "Microphone active for push-to-talk.";
@@ -250,12 +261,12 @@ function App() {
     else if (activity === "speaking") text = "Local read-aloud in progress.";
     else if (voiceState === "transcribing") text = "Transcribing with the local speech model.";
     else text = "Show me a circuit photo or diagram, and tell me what you’re trying to do.";
-    return text.slice(0, 500);
-  }, [visualCaption, readbackAcknowledged, confirmation?.readback_text, activity, error, voiceState, voiceStatus]);
+    return text;
+  }, [tab, visualCaption, confirmation?.readback_text, activity, error, voiceState, voiceStatus]);
 
   useEffect(() => {
     if (!companionEnabled) { lastCompanionPayloadRef.current = ""; return; }
-    const state = { activity, expression: guideExpression, caption: companionCaption, reducedMotion };
+    const state = { activity, expression: guideExpression, caption: companionCaption.slice(0, 500), reducedMotion };
     const serialized = JSON.stringify(state);
     if (serialized === lastCompanionPayloadRef.current) return;
     lastCompanionPayloadRef.current = serialized;
@@ -729,10 +740,22 @@ function App() {
   }
 
   async function useCameraSnapshot(capture: CameraCapture) {
+    const generation = ++snapshotGenerationRef.current;
     const result = await request<{ image: PhotoHelpImage }>("photoImportCapture", capture);
+    if (!snapshotMountedRef.current || generation !== snapshotGenerationRef.current
+        || snapshotContextRef.current.tab !== "bench" || snapshotContextRef.current.paused) {
+      await request("photoReleaseImage", { image_id: result.image.image_id }).catch(() => undefined);
+      return;
+    }
     setPhotoCapture(result.image);
     setVisualCaption("Your snapshot is ready. Tell me what you would like to check.");
-    setTab("photo");
+    setCameraReview(true);
+    setCameraReviewVisible(true);
+  }
+
+  function changeSubtitles(enabled: boolean) {
+    setSubtitlesEnabled(enabled);
+    try { localStorage.setItem("ohmpath.subtitles", enabled ? "on" : "off"); } catch { /* Session-only preference when storage is unavailable. */ }
   }
 
   const photoActivity = useCallback((next: "idle" | "thinking" | "error", caption?: string) => {
@@ -741,19 +764,33 @@ function App() {
     setVisualCaption(caption || "");
   }, []);
 
+  useEffect(() => {
+    snapshotGenerationRef.current += 1;
+    if (tab !== "bench") {
+      setCameraReview(false);
+      setCameraReviewVisible(false);
+      if (pendingPhotoCaptureRef.current) void request("photoReleaseImage", { image_id: pendingPhotoCaptureRef.current.image_id }).catch(() => undefined);
+      setPhotoCapture(undefined);
+    }
+  }, [tab, visualPaused, Boolean(health)]);
+
+  useEffect(() => {
+    snapshotMountedRef.current = true;
+    return () => { snapshotMountedRef.current = false; snapshotGenerationRef.current += 1; };
+  }, []);
+
   return (
-    <div className={`app-shell${reducedMotion ? " reduce-motion" : ""}`}>
+    <div className={`app-shell journey-theme${reducedMotion ? " reduce-motion" : ""}`}>
       <aside className="sidebar">
-        <div className="brand-lockup">
-          <div className="brand-mark"><span>Ω</span><i /></div>
-          <div><strong>Ohm Path</strong><small>LOCAL CIRCUIT WORKSPACE</small></div>
+        <div className="brand-lockup journey-brand">
+          <div className="brand-mark" aria-hidden="true" />
+          <div><strong>Ohm Path</strong><small>A LITTLE GUIDANCE GOES FAR</small></div>
         </div>
-        <div className="workspace-label">YOUR WORKSPACE</div>
-        <nav className="side-nav" aria-label="Workspace">
+        <div className="workspace-label">CHOOSE YOUR PATH</div>
+        <nav className="side-nav journey-nav" aria-label="Workspace">
           {tabs.map((item) => (
-            <button className={`nav-item ${tab === item.id ? "selected" : ""}`} key={item.id} onClick={() => setTab(item.id)}>
+            <button className={`nav-item ${tab === item.id ? "selected" : ""}`} key={item.id} aria-current={tab === item.id ? "page" : undefined} onClick={() => { setTab(item.id); if (item.id !== "bench") { setCameraReview(false); setCameraReviewVisible(false); } }}>
               <span className="nav-icon">{item.icon}</span><span>{item.label}</span>
-              {item.id === "settings" && <span className="nav-soon">Setup</span>}
             </button>
           ))}
         </nav>
@@ -782,10 +819,10 @@ function App() {
           ) : tab === "photo" ? (
             <>
               {showGuide && <aside className="photo-guide-strip panel" aria-label="Guide companion"><FrierenGuide activity={activity} expression={guideExpression} reducedMotion={reducedMotion} compact /><div><strong>Frieren <span>{activityLabel[activity]}</span></strong><p>{companionCaption}</p></div><button className="text-button" onClick={() => { setGuideExpression("happy"); setVisualCaption("Glad that helped. Let’s keep going."); }}>That worked ✓</button><button className="text-button" onClick={() => setShowGuide(false)} aria-label="Hide guide">×</button></aside>}
-              <PhotoHelpPage initialCapture={photoCapture} onCaptureConsumed={() => setPhotoCapture(undefined)} prefillQuestion={investigatorPrefill} onPrefillConsumed={() => setInvestigatorPrefill("")} onActivity={photoActivity} speechAvailable={false} />
+              <PhotoHelpPage prefillQuestion={investigatorPrefill} onPrefillConsumed={() => setInvestigatorPrefill("")} onActivity={photoActivity} speechAvailable={false} />
             </>
           ) : tab === "settings" ? (
-            <SettingsPage reducedMotion={reducedMotion} onReducedMotion={setReducedMotion} showGuide={showGuide} onShowGuide={setShowGuide} localSpeechEnabled={localSpeechEnabled} onLocalSpeech={toggleLocalSpeech} localVoice={localVoice} voiceStatus={voiceStatus} reasoningStatus={health?.reasoning} companionEnabled={companionEnabled} companionBusy={companionBusy} companionError={companionError} onCompanion={setFloatingCompanion} />
+            <SettingsPage reducedMotion={reducedMotion} onReducedMotion={setReducedMotion} showGuide={showGuide} onShowGuide={setShowGuide} subtitlesEnabled={subtitlesEnabled} onSubtitles={changeSubtitles} localSpeechEnabled={localSpeechEnabled} onLocalSpeech={toggleLocalSpeech} localVoice={localVoice} voiceStatus={voiceStatus} reasoningStatus={health?.reasoning} companionEnabled={companionEnabled} companionBusy={companionBusy} companionError={companionError} onCompanion={setFloatingCompanion} />
           ) : tab === "bench" ? (
             <>
               <section className="page-heading">
@@ -809,8 +846,16 @@ function App() {
 
               {visualPaused && <div className="camera-resume"><span>Camera previews stopped.</span><button className="button secondary small" onClick={() => setVisualPaused(false)} disabled={!health}>Resume camera workspace</button></div>}
               <div className="camera-guide-layout">
-                <CameraWorkspace paused={visualPaused || !health} onSnapshot={useCameraSnapshot} onActivity={setVisualCaption} />
-                <aside className="bench-guide-card panel"><span className="eyebrow">YOUR CIRCUIT COMPANION</span><h2>Frieren</h2><FrierenGuide activity={activity} expression={guideExpression} reducedMotion={reducedMotion} /><p>{visualCaption || "Show me what you’re working on. We’ll take it one step at a time."}</p><button className="button secondary" onClick={() => setTab("photo")}>Upload a photo or diagram <span>↗</span></button><button className="text-button" onClick={() => { setGuideExpression("happy"); setVisualCaption("Glad that helped. Let’s keep going."); }}>That worked ✓</button></aside>
+                <CameraWorkspace paused={visualPaused || !health} onSnapshot={useCameraSnapshot} onPause={() => setVisualPaused(true)}
+                  caption={companionCaption} subtitlesEnabled={subtitlesEnabled} onSubtitlesChange={changeSubtitles}
+                  guide={showGuide ? <FrierenGuide activity={activity} expression={guideExpression} reducedMotion={reducedMotion} /> : undefined}
+                  helpPanel={cameraReview ? <div className={`camera-review-content${cameraReviewVisible ? "" : " is-collapsed"}`}>
+                    <button className="button secondary small camera-review-toggle" onClick={() => setCameraReviewVisible(visible => !visible)}>{cameraReviewVisible ? "Back to camera" : "Continue this question"}</button>
+                    <div hidden={!cameraReviewVisible}>
+                      <PhotoHelpPage initialCapture={photoCapture} onCaptureConsumed={() => setPhotoCapture(undefined)} onActivity={photoActivity} speechAvailable={false} />
+                    </div>
+                  </div> : undefined} />
+                {showGuide && <aside className="bench-guide-card panel"><span className="eyebrow">YOUR CIRCUIT COMPANION</span><h2>Frieren</h2><FrierenGuide activity={activity} expression={guideExpression} reducedMotion={reducedMotion} /><p>{companionCaption}</p><button className="button secondary" onClick={() => setTab("photo")}>Upload a photo or diagram <span>↗</span></button><button className="text-button" onClick={() => { setGuideExpression("smug"); setVisualCaption("There. A little patience does help."); }}>That worked ✓</button><button className="text-button" onClick={() => { setGuideExpression("weary"); setVisualCaption("Hm. Then we’re still missing something. Show me what changed, and we’ll try another approach."); }}>Still stuck</button></aside>}
               </div>
 
               <details className="service-details"><summary>Connection status</summary><section className="status-ribbon" aria-label="Service status">
@@ -1038,11 +1083,13 @@ function ComingSoon({ tab, onBack }: { tab: Tab; onBack: () => void }) {
   return <section className="coming-soon panel"><div className="coming-orbit"><span>Ω</span><i /><b /></div><span className="eyebrow">WORKSPACE MODULE</span><h1>{title}</h1><p>This area is reserved for {title.toLowerCase()} tools. This preview only shows features backed by the current local service.</p><div className="coming-status"><span /> NO CAPABILITY CLAIMED</div><button className="button secondary" onClick={onBack}>Return to practice bench <span>←</span></button></section>;
 }
 
-function SettingsPage({ reducedMotion, onReducedMotion, showGuide, onShowGuide, localSpeechEnabled, onLocalSpeech, localVoice, voiceStatus, reasoningStatus, companionEnabled, companionBusy, companionError, onCompanion }: {
+function SettingsPage({ reducedMotion, onReducedMotion, showGuide, onShowGuide, subtitlesEnabled, onSubtitles, localSpeechEnabled, onLocalSpeech, localVoice, voiceStatus, reasoningStatus, companionEnabled, companionBusy, companionError, onCompanion }: {
   reducedMotion: boolean;
   onReducedMotion: (value: boolean) => void;
   showGuide: boolean;
   onShowGuide: (value: boolean) => void;
+  subtitlesEnabled: boolean;
+  onSubtitles: (value: boolean) => void;
   localSpeechEnabled: boolean;
   onLocalSpeech: (value: boolean) => void;
   localVoice: SpeechSynthesisVoice | null;
@@ -1060,13 +1107,14 @@ function SettingsPage({ reducedMotion, onReducedMotion, showGuide, onShowGuide, 
       <TurretSettings />
       <section className="panel settings-panel"><PanelHeader kicker="ACCESSIBILITY" title="Display preferences" />
         <label className="preference-row"><span><strong>Reduce motion</strong><small>Stop decorative animation across the guide and interface.</small></span><input type="checkbox" checked={reducedMotion} onChange={(event) => onReducedMotion(event.target.checked)} /></label>
+        <label className="preference-row"><span><strong>Camera subtitles</strong><small>Show Frieren’s responses and measurement readback over the camera. No audio needed.</small></span><input type="checkbox" checked={subtitlesEnabled} onChange={(event) => onSubtitles(event.target.checked)} /></label>
                 <label className="preference-row"><span><strong>Show guide companion</strong><small>Keep Frieren’s small companion visible on Photo help and circuit tools.</small></span><input type="checkbox" checked={showGuide} onChange={(event) => onShowGuide(event.target.checked)} /></label>
         <label className="preference-row"><span><strong>Optional local system voice</strong><small>{localVoice ? `System voice: ${localVoice.name}. Spoken summaries and explanations require a button press.` : "No local system voice is available. Captions remain available."}</small></span><input type="checkbox" checked={localSpeechEnabled} disabled={!localVoice} onChange={(event) => onLocalSpeech(event.target.checked)} /></label>
         <label className="preference-row"><span><strong>Floating desktop companion</strong><small>Open a separate activity and caption window. It has no bench controls and opens only when enabled.</small></span><input type="checkbox" checked={companionEnabled} disabled={companionBusy} onChange={(event) => onCompanion(event.target.checked)} /></label>
         {companionError && <p className="companion-settings-error" role="alert">{companionError}</p>}
       </section>
       <section className="panel settings-panel registry-panel"><PanelHeader kicker="YOUR COMPANION" title="Frieren" />
-        <div className="guide-expression-preview">{(["neutral", "thinking", "stumped", "happy"] as const).map(expression => <figure key={expression}><FrierenGuide activity="idle" expression={expression} reducedMotion={reducedMotion} compact /><figcaption>{niceName(expression)}</figcaption></figure>)}</div>
+        <div className="guide-expression-preview">{(["neutral", "thinking", "stumped", "happy", "smug", "weary"] as const).map(expression => <figure key={expression}><FrierenGuide activity="idle" expression={expression} reducedMotion compact /><figcaption>{niceName(expression)}</figcaption></figure>)}</div>
         <p className="registry-note">Expressions follow the current activity. “That worked” lets her know your fix helped. Voice generation stays off during setup.</p>
       </section>
       <section className="panel settings-panel runtime-panel"><PanelHeader kicker="RUNTIME BOUNDARIES" title="Connected services" />

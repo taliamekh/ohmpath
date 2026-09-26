@@ -40,9 +40,13 @@ test('desktop connects to a real local service and confirms only after readback'
     await page.getByPlaceholder('e.g. 1.65 V or OL').fill('-12.5 mV');
     await page.getByRole('button', { name: /^Read back/ }).click();
     await expect(page.getByRole('button', { name: 'Confirm practice input' })).toBeDisabled();
+    const pendingReadback = await page.locator('.readback-label p').innerText();
+    // Subtitles show the exact unconfirmed candidate without acknowledging it.
+    await expect(page.getByLabel('Camera subtitles')).toHaveText(pendingReadback);
     await page.getByRole('button', { name: 'I checked this readback' }).click();
     await page.getByRole('button', { name: 'Confirm practice input' }).click();
     await expect(page.getByText('Practice input confirmed and recorded as simulated user input.')).toBeVisible();
+    await expect(page.getByLabel('Camera subtitles')).not.toHaveText(pendingReadback);
     await page.screenshot({ path: 'runtime/desktop-verified.png', fullPage: true });
     const result = await page.evaluate(async () => {
       const api = (window as any).ohmpath;
