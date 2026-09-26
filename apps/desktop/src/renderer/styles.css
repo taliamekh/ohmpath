@@ -26,6 +26,37 @@
   --display: "Segoe UI Variable Display", "Segoe UI", sans-serif;
 }
 
+.camera-guide-layout { display: grid; grid-template-columns: minmax(0, 1fr) 250px; gap: 18px; align-items: stretch; margin-bottom: 18px; }
+.camera-resume { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 10px 0; color: var(--soft); font-size: 12px; }
+.bench-guide-card { display: flex; flex-direction: column; align-items: center; padding: 22px 18px; text-align: center; overflow: hidden; }
+.bench-guide-card h2 { margin: 4px 0 8px; font-size: 24px; font-weight: 500; }
+.bench-guide-card p { color: var(--soft); font-size: 13px; line-height: 1.6; margin: 5px 0 20px; }
+.bench-guide-card .text-button { margin-top: 14px; }
+.service-details { margin: 12px 0; }
+.service-details > summary, .session-picker > summary { color: var(--muted); cursor: pointer; font-size: 12px; padding: 10px 0; }
+.session-picker > div { padding: 10px 0; }
+.bench-advanced { margin-top: 22px; padding: 18px; border: 1px solid var(--line); border-radius: 10px; }
+.bench-advanced > summary { cursor: pointer; font-size: 14px; color: var(--soft); }
+.advanced-intro { color: var(--muted); font-size: 12px; }
+.bench-advanced > .button { margin-bottom: 18px; }
+.bench-advanced .workspace-grid { grid-template-columns: 1fr; }
+.guide-expression-preview { display: flex; flex-wrap: wrap; gap: 5px; justify-content: center; margin-top: 20px; }
+.guide-expression-preview figure { margin: 0; width: 105px; text-align: center; }
+.photo-guide-strip { display: flex; align-items: center; gap: 18px; margin: 0 0 20px; padding: 0 18px; min-height: 95px; overflow: hidden; }
+.photo-guide-strip > .frieren-guide { width: 68px; height: 95px; }
+.photo-guide-strip > div:nth-child(2) { flex: 1; min-width: 0; }
+.photo-guide-strip strong { font-size: 13px; }
+.photo-guide-strip strong span { color: var(--muted); font-size: 11px; font-weight: 400; margin-left: 12px; }
+.photo-guide-strip p { max-height: 54px; overflow: auto; margin: 7px 0; color: var(--soft); font-size: 12px; line-height: 1.5; }
+.photo-guide-strip > button { flex: 0 0 auto; }
+.guide-expression-preview figcaption { font-size: 11px; color: var(--soft); margin: 8px 0 12px; }
+.companion-center > .frieren-guide { height: 285px; width: 170px; margin: 0 auto; }
+.guide-float-body > .frieren-guide { height: 130px; width: 90px; }
+.guide-float-body > div:last-child { min-width: 0; }
+.guide-float-body > div:last-child small { max-height: 90px; overflow: auto; }
+@media (max-width: 1180px) { .camera-guide-layout { grid-template-columns: minmax(0, 1fr) 200px; } .bench-guide-card { padding: 18px 10px; } .bench-guide-card > .frieren-guide { width: 170px; height: 285px; } }
+@media (max-width: 900px) { .camera-guide-layout { grid-template-columns: 1fr; } .bench-guide-card > .frieren-guide { height: 220px; width: 140px; } }
+
 * { box-sizing: border-box; }
 body { margin: 0; min-width: 360px; min-height: 100vh; background: var(--bg); }
 button, input, select { font: inherit; }

@@ -24,6 +24,7 @@ test('one desktop owns each profile, reload preserves its session and a crash cl
     browser = await chromium.connectOverCDP(endpoint);
     const context = browser.contexts()[0];
     const page = context.pages()[0] || await context.waitForEvent('page');
+    await page.getByText('Measurements and circuit tools', { exact: true }).click();
     await page.getByRole('button', { name: 'Create practice bench' }).click();
     await expect(page.getByRole('button', { name: 'Run local solve' })).toBeVisible();
     const duplicate = spawn(requireElectron('electron'), [resolve('.')], {
@@ -34,6 +35,7 @@ test('one desktop owns each profile, reload preserves its session and a crash cl
       expect(desktop.exitCode).toBeNull();
     } finally { if (duplicate.exitCode === null) duplicate.kill(); }
     await page.reload({ waitUntil: 'domcontentloaded' });
+    await page.getByText('Measurements and circuit tools', { exact: true }).click();
     await expect(page.getByRole('button', { name: 'Run local solve' })).toBeVisible();
     const devtools = await context.newCDPSession(page);
     // Chromium crashes only this isolated test renderer. No physical devices or model turn are opened.

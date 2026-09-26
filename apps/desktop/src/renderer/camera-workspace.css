@@ -1,0 +1,71 @@
+.camera-workspace {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+  padding: 20px;
+  border: 1px solid #294248;
+  border-radius: 12px;
+  background: #101c24;
+  color: #dce9e5;
+}
+
+.camera-workspace-head { display: flex; align-items: end; justify-content: space-between; gap: 18px; }
+.camera-workspace-head h2 { margin: 5px 0 4px; color: #edf8f2; font-size: clamp(18px, 2vw, 25px); font-weight: 600; letter-spacing: -.035em; }
+.camera-workspace-head p { margin: 0; color: #8aa6a8; font-size: 12px; }
+.camera-workspace-kicker { color: #77d9bd; font: 9px var(--mono, monospace); letter-spacing: .15em; }
+.camera-workspace-layout { display: flex; gap: 3px; flex-shrink: 0; padding: 3px; border: 1px solid #2b454b; border-radius: 8px; background: #0c1820; }
+.camera-workspace-layout button { padding: 8px 10px; border: 0; border-radius: 5px; background: transparent; color: #91a9aa; cursor: pointer; font: inherit; font-size: 11px; white-space: nowrap; }
+.camera-workspace-layout button.selected { background: #264e4b; color: #d9f8e9; }
+.camera-workspace-layout button:hover:not(.selected) { background: #1a323a; color: #dce9e5; }
+.camera-workspace-stage { display: grid; min-height: clamp(320px, 48vh, 480px); gap: 10px; }
+.camera-workspace-stage-overview, .camera-workspace-stage-pi { grid-template-columns: minmax(0, 1fr); }
+.camera-workspace-stage-both { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.camera-workspace-stage-overview .camera-workspace-pi, .camera-workspace-stage-pi .camera-workspace-overview { display: none; }
+.camera-workspace-feed { position: relative; overflow: hidden; min-width: 0; min-height: 280px; border: 1px solid #365257; border-radius: 9px; background: radial-gradient(circle at 50% 45%, #193237, #0a151c 73%); }
+.camera-workspace-feed video, .camera-workspace-feed img { display: block; width: 100%; height: 100%; object-fit: contain; background: #071116; }
+.camera-workspace-feed video { visibility: hidden; }
+.camera-workspace-feed video.is-visible { visibility: visible; }
+.camera-workspace-empty { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 9px; padding: 24px; text-align: center; }
+.camera-workspace-empty-icon { display: grid; place-items: center; width: 56px; height: 56px; border: 1px solid #35545a; border-radius: 17px; background: #142b32; color: #76adab; font-size: 31px; line-height: 1; }
+.camera-workspace-empty strong { color: #d0e5de; font-size: 14px; font-weight: 600; }
+.camera-workspace-empty > span:last-child { max-width: 230px; color: #819ba0; font-size: 11px; line-height: 1.5; }
+.camera-workspace-feed-label { position: absolute; left: 12px; bottom: 12px; display: flex; align-items: center; gap: 7px; max-width: calc(100% - 24px); padding: 7px 9px; border: 1px solid #3e5a5b; border-radius: 6px; background: #0a1b20e8; color: #e2eee9; font: 10px var(--mono, monospace); text-transform: uppercase; letter-spacing: .04em; }
+.camera-workspace-feed-label small { overflow: hidden; margin-left: 4px; color: #8aa8a8; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; text-transform: none; }
+.camera-workspace-dot { width: 7px; height: 7px; flex-shrink: 0; border-radius: 50%; background: #536b6f; }
+.camera-workspace-dot.is-live { background: #75d7af; box-shadow: 0 0 8px #75d7af88; }
+.camera-workspace-bottom { display: flex; justify-content: space-between; align-items: center; gap: 14px; }
+.camera-workspace-capture { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.camera-workspace-capture label { color: #a1bcb9; font-size: 11px; white-space: nowrap; }
+.camera-workspace-capture select, .camera-workspace-setup select, .camera-workspace-setup input { max-width: 100%; padding: 8px 9px; border: 1px solid #395459; border-radius: 6px; outline-color: #79dfba; background: #0b1920; color: #e3f1e9; font: inherit; font-size: 11px; }
+.camera-workspace-ask { display: inline-flex; align-items: center; justify-content: center; gap: 12px; min-height: 34px; padding: 8px 12px; border: 1px solid #83d8ac; border-radius: 6px; background: #9bdeb9; color: #102721; cursor: pointer; font: inherit; font-size: 11px; font-weight: 600; white-space: nowrap; }
+.camera-workspace-ask:hover:not(:disabled) { background: #c2f1d1; }
+.camera-workspace-ask:disabled, .camera-workspace-setup button:disabled { cursor: default; opacity: .48; }
+.camera-workspace-bottom p { max-width: 260px; margin: 0; color: #799699; font-size: 10px; line-height: 1.5; text-align: right; }
+.camera-workspace-setup { border-top: 1px solid #2c4449; }
+.camera-workspace-setup summary { display: flex; justify-content: space-between; gap: 10px; padding: 5px 0 0; color: #c9dcd5; cursor: pointer; font-size: 11px; font-weight: 600; list-style-position: inside; }
+.camera-workspace-setup summary span { color: #7f9e9c; font: 10px var(--mono, monospace); font-weight: normal; }
+.camera-workspace-setup-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 13px; }
+.camera-workspace-setup-card { display: flex; flex-direction: column; align-items: start; gap: 10px; min-width: 0; padding: 14px; border: 1px solid #2a454a; border-radius: 8px; background: #0d1a21; }
+.camera-workspace-setup-card h3 { margin: 0; color: #dfede6; font-size: 13px; }
+.camera-workspace-setup-card > p:not(.camera-workspace-error) { margin: 0; color: #8fa8a7; font-size: 11px; line-height: 1.45; }
+.camera-workspace-setup-card label { display: flex; flex-direction: column; gap: 5px; width: 100%; color: #adc3bd; font-size: 10px; }
+.camera-workspace-setup-actions { display: flex; flex-wrap: wrap; gap: 7px; }
+.camera-workspace-setup-actions button { padding: 8px 10px; border: 1px solid #496e67; border-radius: 6px; background: #1b393a; color: #d5e9de; cursor: pointer; font: inherit; font-size: 11px; }
+.camera-workspace-setup-actions button:hover:not(:disabled) { background: #27504a; }
+.camera-workspace-pi-fields { display: flex; gap: 9px; width: 100%; }
+.camera-workspace-pi-fields label:first-child { width: 95px; flex-shrink: 0; }
+.camera-workspace-error { margin: 0; color: #ffb7aa; font-size: 11px; line-height: 1.45; }
+.camera-workspace-paused { margin: 0; color: #d5b88d; font-size: 11px; }
+@media (max-width: 900px) {
+  .camera-workspace-head, .camera-workspace-bottom { align-items: start; flex-direction: column; }
+  .camera-workspace-bottom p { max-width: none; text-align: left; }
+  .camera-workspace-stage-both { grid-template-columns: 1fr; }
+  .camera-workspace-stage-both .camera-workspace-feed { min-height: 260px; }
+}
+@media (max-width: 600px) {
+  .camera-workspace { padding: 13px; }
+  .camera-workspace-stage { min-height: 300px; }
+  .camera-workspace-setup-grid { grid-template-columns: 1fr; }
+  .camera-workspace-setup summary span { display: none; }
+}
