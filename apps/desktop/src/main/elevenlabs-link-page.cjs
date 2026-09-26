@@ -49,7 +49,7 @@ function send(response, statusCode, html, extraHeaders = {}) {
     'Content-Type': 'text/html; charset=utf-8',
     'Cache-Control': 'no-store, max-age=0',
     'Pragma': 'no-cache',
-    'Referrer-Policy': 'no-referrer',
+    'Referrer-Policy': 'same-origin',
     'X-Content-Type-Options': 'nosniff',
     'X-Frame-Options': 'DENY',
     'Cross-Origin-Resource-Policy': 'same-origin',
