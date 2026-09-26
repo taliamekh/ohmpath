@@ -8,11 +8,15 @@ export type CharacterRigProps = {
   reducedMotion?: boolean;
   aspectRatio?: number;
   mouth?: { x: number; y: number };
-  /** Eye centers in the selected portrait, omitted for expressions with closed eyes. */
-  eyes?: [{ x: number; y: number }, { x: number; y: number }];
+  /** Only the eye patches from a matching closed-eye frame are composited during a blink. */
+  blink?: {
+    frame: NonNullable<CharacterRigProps["frame"]>;
+    eyes: [BlinkEye, BlinkEye];
+  };
 };
 
 type Point = { x: number; y: number };
+type BlinkEye = { open: Point; closed: Point; radiusX: number; radiusY: number; sourceRadiusX: number };
 type LoadedImage = { src: string; image: HTMLImageElement };
 
 // Mesh knots follow the supplied full-body artwork. The face, waist and feet
@@ -64,36 +68,30 @@ function blinkAmount(seconds: number): number {
   return smooth(3.04, 3.10, phase) * (1 - smooth(3.20, 3.29, phase));
 }
 
-function drawBlink(ctx: CanvasRenderingContext2D, texture: HTMLCanvasElement,
-                   eyes: CharacterRigProps["eyes"], left: number, top: number,
+function drawBlink(ctx: CanvasRenderingContext2D, closedTexture: HTMLCanvasElement,
+                   eyes: [BlinkEye, BlinkEye], left: number, top: number,
                    width: number, height: number, closure: number): void {
-  if (!eyes || closure <= 0) return;
-  const source = texture.getContext("2d", { willReadFrequently: true });
-  if (!source) return;
-  ctx.save();
-  ctx.globalAlpha = closure;
+  if (closure <= 0) return;
   for (const eye of eyes) {
-    const x = eye.x * width;
-    const y = eye.y * height;
-    // Sample cheek skin below each eye. The patch affects only the eyelid;
-    // the surrounding face and head keep their original artwork and position.
-    const skin = source.getImageData(Math.round(x), Math.round(y + height * .028), 1, 1).data;
-    const centerX = left + x;
-    const centerY = top + y;
-    ctx.fillStyle = `rgb(${skin[0]}, ${skin[1]}, ${skin[2]})`;
+    const radiusX = eye.radiusX * width;
+    const radiusY = eye.radiusY * height;
+    const sourceRadiusX = eye.sourceRadiusX * width;
+    const centerX = left + eye.open.x * width;
+    const centerY = top + eye.open.y * height;
+    ctx.save();
+    ctx.globalAlpha = closure;
+    // The happy pose supplies artist-drawn closed lids and matching skin. The
+    // clip is wider than the entire open lash/iris contour, but ends before
+    // the brows, nose and lower face. No full-frame sprite replacement occurs.
     ctx.beginPath();
-    ctx.ellipse(centerX, centerY, width * .032, height * .015, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.strokeStyle = "#473735";
-    ctx.lineWidth = Math.max(.8, width * .0042);
-    ctx.lineCap = "round";
-    ctx.beginPath();
-    ctx.moveTo(centerX - width * .025, centerY + height * .001);
-    ctx.quadraticCurveTo(centerX, centerY + height * .011,
-                         centerX + width * .025, centerY + height * .001);
-    ctx.stroke();
+    ctx.ellipse(centerX, centerY, radiusX, radiusY, 0, 0, Math.PI * 2);
+    ctx.clip();
+    ctx.drawImage(closedTexture,
+      eye.closed.x * width - sourceRadiusX, eye.closed.y * height - radiusY,
+      sourceRadiusX * 2, radiusY * 2,
+      centerX - radiusX, centerY - radiusY, radiusX * 2, radiusY * 2);
+    ctx.restore();
   }
-  ctx.restore();
 }
 
 function drawTriangle(ctx: CanvasRenderingContext2D, texture: HTMLCanvasElement,
@@ -172,7 +170,7 @@ function unmoved(source: Point, target: Point, left: number, top: number): boole
 /** Deforms selected outer regions of one full-body source image in place. */
 export default function CharacterRig({ src, frame, activity, expression,
                                        reducedMotion = false, aspectRatio = .5,
-                                       mouth, eyes }: CharacterRigProps) {
+                                       mouth, blink }: CharacterRigProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [loaded, setLoaded] = useState<LoadedImage | null>(null);
   const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
@@ -244,9 +242,11 @@ export default function CharacterRig({ src, frame, activity, expression,
     }
     const image = loaded?.image;
     const rect = image ? frameRect(image, spec) : null;
+    const closedRect = image && blink ? frameRect(image, frameSpec(blink.frame)) : null;
     const amount = motionAmount(activity, reducedMotion || prefersReducedMotion);
     const earAmount = activity === "listening" ? 1.5 : 1;
     let texture: HTMLCanvasElement | null = null;
+    let closedTexture: HTMLCanvasElement | null = null;
     let stageWidth = 0;
     let stageHeight = 0;
     let raf = 0;
@@ -267,6 +267,7 @@ export default function CharacterRig({ src, frame, activity, expression,
         canvas.width = pixelWidth;
         canvas.height = pixelHeight;
         texture = null;
+        closedTexture = null;
       }
     }
 
@@ -295,6 +296,18 @@ export default function CharacterRig({ src, frame, activity, expression,
         textureContext.imageSmoothingQuality = "high";
         textureContext.drawImage(image, rect.x, rect.y, rect.width, rect.height,
                                  0, 0, width, height);
+        if (closedRect) {
+          closedTexture = document.createElement("canvas");
+          closedTexture.width = width;
+          closedTexture.height = height;
+          const closedContext = closedTexture.getContext("2d", { alpha: true });
+          if (closedContext) {
+            closedContext.imageSmoothingEnabled = true;
+            closedContext.imageSmoothingQuality = "high";
+            closedContext.drawImage(image, closedRect.x, closedRect.y, closedRect.width, closedRect.height,
+                                    0, 0, width, height);
+          } else closedTexture = null;
+        }
         stageWidth = width;
         stageHeight = height;
       }
@@ -340,7 +353,9 @@ export default function CharacterRig({ src, frame, activity, expression,
           drawTriangle(ctx, texture, [s11, s01, s10], [d11, d01, d10]);
         }
       }
-      if (eyes) drawBlink(ctx, texture, eyes, left, top, width, height, blinkAmount(seconds));
+      if (blink && closedTexture) {
+        drawBlink(ctx, closedTexture, blink.eyes, left, top, width, height, blinkAmount(seconds));
+      }
       if (activity === "speaking" && !reducedMotion && !prefersReducedMotion && mouth
           && Number.isFinite(mouth.x) && Number.isFinite(mouth.y)
           && mouth.x >= 0 && mouth.x <= 1 && mouth.y >= 0 && mouth.y <= 1) {
@@ -411,10 +426,11 @@ export default function CharacterRig({ src, frame, activity, expression,
       intersection?.disconnect();
       document.removeEventListener("visibilitychange", onVisibilityChange);
       texture = null;
+      closedTexture = null;
     };
   }, [loaded, frame?.columns, frame?.rows, frame?.column, frame?.row, frame?.offsetX,
       activity, reducedMotion, prefersReducedMotion, safeRatio, mouth?.x, mouth?.y,
-      eyes?.[0]?.x, eyes?.[0]?.y, eyes?.[1]?.x, eyes?.[1]?.y]);
+      blink]);
 
   const fallbackX = spec.columns === 1 ? 0 : (spec.column + spec.offsetX) / (spec.columns - 1) * 100;
   const fallbackY = spec.rows === 1 ? 0 : spec.row / (spec.rows - 1) * 100;
