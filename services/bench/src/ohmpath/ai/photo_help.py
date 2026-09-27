@@ -7,6 +7,7 @@ import binascii
 import copy
 import hashlib
 import json
+import logging
 import os
 import struct
 import tempfile
@@ -17,15 +18,20 @@ from pathlib import Path
 from uuid import UUID, uuid4
 
 from ohmpath.session.store import DomainError
+from ohmpath.circuits.reconstruction import CircuitReconstruction, DraftError
 
 from .live_proof import ProofFailure
-from .photo_runtime import run_photo_turn
+from .photo_runtime import PhotoValidationFailure, run_photo_turn
+
+
+_LOGGER = logging.getLogger(__name__)
 
 MAX_IMAGE_BYTES = 2_000_000
 MAX_PIXELS = 8_000_000
 GENERIC_FAILURE_MESSAGE = ("Photo help could not validate an answer. Please retry with a narrower question; "
                            "if part labels or connections are hidden, improve the view. If it repeats, check the Codex connection.")
 FAILURE_MESSAGES = {
+    "required_photo_reconstruction_missing": "The circuit review did not finish building or simulating its current draft. Retry with a clearer view or answer the named part questions.",
     "not_chatgpt_subscription": "Sign in to Codex with a ChatGPT subscription, then try again.",
     "astra_capability_unavailable": "The required image-capable Codex model is unavailable. Check model access, then try again.",
     "allowance_margin_reached": "Codex subscription allowance is too low. Wait for it to reset, then try again.",
@@ -206,8 +212,9 @@ def _uuid(value: str) -> str:
 
 
 class PhotoHelp:
-    def __init__(self, runner=run_photo_turn):
+    def __init__(self, runner=run_photo_turn, *, data_dir: Path | None = None):
         self.runner = runner
+        self.reconstruction = CircuitReconstruction(data_dir)
         self.lock = threading.RLock()
         self.jobs: OrderedDict[str, dict] = OrderedDict()
         self.contexts: OrderedDict[str, dict] = OrderedDict()
@@ -217,6 +224,10 @@ class PhotoHelp:
     def busy(self) -> bool:
         with self.lock:
             return any(job["worker"].is_alive() for job in self.jobs.values())
+
+    def circuit_status(self, context_id: str) -> dict:
+        """Read a private saved draft without starting reasoning or simulation."""
+        return {"circuit_model": self.reconstruction.snapshot(_uuid(context_id))}
 
     @staticmethod
     def _discard_media(job: dict) -> None:
@@ -258,7 +269,8 @@ class PhotoHelp:
                 raise DomainError("investigator_busy", "Wait for or cancel the current help request.", 429)
             context = self.contexts.get(context_id)
             if context is None or context["revision"] != revision:
-                history: list[tuple[str, str]] = []
+                history: list[dict] = context["history"][-3:] if context else []
+                self.reconstruction.carry_forward(context_id, revision)
                 for job in self.jobs.values():
                     if job["context_id"] == context_id and job["result"]["status"] == "completed":
                         job["result"] = {"turn_id": job["turn_id"], "status": "stale",
@@ -302,8 +314,28 @@ class PhotoHelp:
                     job["images"] = None
                 if job["cancel"].is_set():
                     return
-                answer = self.runner(job["context_id"], job["revision"], job["question"],
-                                     paths, job["history"], job["cancel"])
+                if self.runner is run_photo_turn:
+                    context_id, revision = job["context_id"], job["revision"]
+                    def tool_handler(name: str, arguments: dict) -> dict:
+                        if name == "remember_circuit" and set(arguments) == {"candidate"}:
+                            return self.reconstruction.remember(context_id, revision, arguments["candidate"],
+                                                                cancel_event=job["cancel"])
+                        if name == "simulate_circuit" and set(arguments) == {"draft_revision"}:
+                            return self.reconstruction.simulate(context_id, revision, arguments["draft_revision"],
+                                                                cancel_event=job["cancel"])
+                        raise DraftError("invalid reconstruction tool arguments")
+                    try:
+                        from ohmpath.vision.photo_inspection import PhotoInspector
+                        inspector = PhotoInspector(paths)
+                    except ImportError:
+                        inspector = None
+                    retained = self.reconstruction.snapshot(context_id)
+                    answer = self.runner(context_id, revision, job["question"], paths,
+                                         job["history"], job["cancel"], tool_handler=tool_handler,
+                                         inspector=inspector, retained_draft=retained["draft"] if retained else None)
+                else:
+                    answer = self.runner(job["context_id"], job["revision"], job["question"],
+                                         paths, job["history"], job["cancel"])
             # Validate even an injected runner; only the validated shape reaches UI.
             from .photo_runtime import validate_answer
             checked = validate_answer(json.dumps({"context_id": job["context_id"],
@@ -316,9 +348,27 @@ class PhotoHelp:
                 job["result"] = {"turn_id": job["turn_id"], "status": "completed",
                                  "context_id": job["context_id"], "image_revision": job["revision"],
                                  "answer": checked}
-                context["history"].append((job["question"][:4000], checked["explanation"][:2000]))
-                context["history"] = context["history"][-3:]
+                circuit_model = self.reconstruction.snapshot(job["context_id"])
+                if circuit_model is not None and circuit_model["draft"]["image_revision"] == job["revision"]:
+                    job["result"]["circuit_model"] = circuit_model
+                report = None
+                if "The user reports:" in job["question"]:
+                    report = job["question"].split("The user reports:", 1)[1].split(
+                        "Treat this as an unconfirmed user report.", 1)[0].strip()[:1200]
+                context["history"].append({
+                    "image_revision": job["revision"],
+                    "user_input": job["question"][:1600],
+                    "reported_result": {"text": report, "provenance": "user_reported_unconfirmed"} if report else None,
+                    "explanation": checked["explanation"][:1600],
+                    "ordered_tests": checked["next_steps"][:3],
+                    "unresolved_questions": checked["questions"][:4],
+                    "limitations": checked["limitations"][:3],
+                })
+                if len(context["history"]) > 3:
+                    context["history"] = [context["history"][0], *context["history"][-2:]]
         except Exception as error:
+            if isinstance(error, PhotoValidationFailure):
+                _LOGGER.warning("photo_answer_validation_failed stage=%s", error.stage)
             with self.lock:
                 if self.closed or job["cancel"].is_set():
                     return
@@ -352,6 +402,7 @@ class PhotoHelp:
                 while len(self.cancelled_contexts) > 128:
                     self.cancelled_contexts.popitem(last=False)
                 self.contexts.pop(context_id, None)
+                self.reconstruction.clear(context_id)
             for job in self.jobs.values():
                 if job["context_id"] == context_id and (turn_id is None or job["turn_id"] == turn_id):
                     if job["result"]["status"] == "running":

@@ -82,16 +82,21 @@ button:disabled { opacity: .48; cursor: not-allowed; }
 .sidebar-foot span { float: right; }
 
 .main-shell { width: calc(100% - 226px); min-height: 100vh; margin-left: 226px; display: flex; flex-direction: column; }
-.topbar { height: 58px; flex: 0 0 58px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--line); padding: 0 34px; background: rgba(9,20,30,.65); }
+.topbar { height: 58px; flex: 0 0 58px; display: flex; justify-content: flex-end; align-items: center; border-bottom: 1px solid var(--line); padding: 0 34px; background: rgba(9,20,30,.65); }
 .breadcrumbs { display: flex; gap: 10px; align-items: center; color: #718692; font-size: 11px; }
 .breadcrumbs b { color: #354b57; font-weight: 400; }
 .breadcrumbs strong { color: #bdccd2; font-weight: 500; }
-.topbar-right { display: flex; align-items: center; gap: 13px; }
+.topbar-right { display: flex; align-items: center; gap: 8px; }
 .practice-pill { display: flex; align-items: center; gap: 6px; border: 1px solid #3c3931; border-radius: 4px; padding: 5px 8px; color: #dbc18f; font: 9px var(--mono); letter-spacing: .65px; background: #242219; }
 .practice-pill i { width: 5px; height: 5px; background: var(--amber); border-radius: 50%; }
 .practice-pill.manual-mode-pill { color: #9dd8c9; background: #142721; border-color: #31574d; }
 .practice-pill.manual-mode-pill i { background: #70c7a8; }
 .avatar-button { min-width: 29px; height: 29px; padding: 0 10px; border: 1px solid #29414a; border-radius: 15px; background: #15313a; color: #9fe0d7; font: 600 10px var(--display); cursor: pointer; }
+.topbar-session-picker { position: relative; width: auto; }
+.topbar-session-picker > summary { min-width: 29px; height: 29px; padding: 0 11px; display: inline-flex; align-items: center; border: 1px solid #29414a; border-radius: 15px; background: #15313a; color: #9fe0d7; cursor: pointer; font: 600 10px var(--display); list-style: none; }
+.topbar-session-picker > summary::-webkit-details-marker { display: none; }
+.topbar-session-picker > div { position: absolute; z-index: 30; top: calc(100% + 10px); right: 0; width: min(340px, calc(100vw - 28px)); padding: 13px; border: 1px solid #29414a; border-radius: 10px; background: #10251f; box-shadow: 0 14px 32px #18251a55; }
+.topbar-session-picker[open] > summary { border-color: #75c5a5; }
 .scroll-area { position: relative; width: min(1400px, 100%); margin: 0 auto; padding: 26px 34px 32px; flex: 1; }
 .app-footer { display: flex; justify-content: space-between; padding: 12px 34px 15px; color: #546b76; font-size: 9px; border-top: 1px solid rgba(178,209,222,.06); }
 .page-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 22px; margin: 0 0 20px; }
@@ -872,3 +877,4 @@ body:has(.companion-window) { min-width: 280px; }
   .aim-sim-display svg { min-height: 185px; }
   .aim-frame-meta { font-size: 6px; }
 }
+.live-voice-controls { display:flex; flex-wrap:wrap; gap:10px; margin-bottom:8px; }

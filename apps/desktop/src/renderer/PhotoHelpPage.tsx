@@ -3,6 +3,9 @@ import "./photo-help.css";
 import PhonePhotoLink from "./PhonePhotoLink";
 import SpokenQuestion from "./SpokenQuestion";
 import type { FrameRegion } from "./circuit-framing";
+import PhotoAnnotationOverlay, { type PhotoAnnotation } from "./PhotoAnnotationOverlay";
+import CircuitModelPanel from "./CircuitModelPanel";
+import type { PhotoCircuitComponent, PhotoCircuitModel } from "../../../../packages/contracts/index";
 
 export type PhotoHelpImage = {
   image_id: string;
@@ -17,7 +20,7 @@ export type PhotoHelpImage = {
   focus_region?: FrameRegion;
 };
 
-type Annotation = { image_id: string; x: number; y: number; label: string };
+type Annotation = PhotoAnnotation;
 type PhotoAnswer = {
   explanation: string;
   observations: string[];
@@ -34,18 +37,21 @@ type PhotoJob = {
   answer?: PhotoAnswer;
   error?: string;
   message?: string;
+  circuit_model?: unknown;
 };
 type Turn = { id: string; question: string; answer: PhotoAnswer };
 type ActiveJob = { context_id: string; turn_id?: string; generation: number; deadline: number };
+const CIRCUIT_CONTEXT_STORAGE_KEY = "ohmpath.photoCircuitContextId";
 
 export type PhotoHelpPageProps = {
   active?: boolean;
   initialCapture?: PhotoHelpImage;
   onCaptureConsumed?: () => void;
+  onCaptureOverview?: () => Promise<void> | void;
   prefillQuestion?: string;
   onPrefillConsumed?: () => void;
   onActivity?: (activity: "idle" | "listening" | "thinking" | "error", caption?: string) => void;
-  onReadAloud?: (text: string) => void;
+  onReadAloud?: (text: string, onComplete?: () => void) => void;
   onStopSpeaking?: () => void;
   speechAvailable?: boolean;
   phoneTransfer?: boolean;
@@ -98,6 +104,81 @@ function cleanAnswer(value: unknown, imageIds: Set<string>): PhotoAnswer {
   };
 }
 
+function cleanCircuitModel(value: unknown): PhotoCircuitModel | null {
+  if (!value || typeof value !== "object") return null;
+  const source = value as { draft?: unknown; simulation?: unknown };
+  if (!source.draft || typeof source.draft !== "object") return null;
+  const draft = source.draft as Record<string, unknown>;
+  if (typeof draft.context_id !== "string" || typeof draft.image_revision !== "string" || typeof draft.draft_revision !== "string") return null;
+  const cleanSource = (item: unknown): PhotoCircuitComponent["source"] => item === "image_visible" || item === "user_reported" || item === "assumed" ? item : "unknown";
+  const components = Array.isArray(draft.components) ? draft.components.slice(0, 32).flatMap((item): PhotoCircuitComponent[] => {
+    if (!item || typeof item !== "object") return [];
+    const component = item as Record<string, unknown>;
+    if (typeof component.ref !== "string" || typeof component.kind !== "string" || !Array.isArray(component.nodes)) return [];
+    const nodes = component.nodes.slice(0, 2).map(node => typeof node === "string" ? node.slice(0, 100) : null);
+    while (nodes.length < 2) nodes.push(null);
+    const numericValue = typeof component.value_si === "number" && Number.isFinite(component.value_si) ? component.value_si : null;
+    return [{
+      ref: component.ref.slice(0, 40), kind: component.kind.slice(0, 80), nodes,
+      value_si: numericValue, source: cleanSource(component.source),
+      value_source: cleanSource(component.value_source), connection_source: cleanSource(component.connection_source),
+    }];
+  }) : [];
+  const questions = Array.isArray(draft.questions) ? draft.questions.slice(0, 24).flatMap((item) => {
+    if (!item || typeof item !== "object") return [];
+    const question = item as Record<string, unknown>;
+    if (typeof question.target !== "string" || typeof question.issue !== "string" || typeof question.request !== "string") return [];
+    return [{ target: question.target.slice(0, 80), issue: question.issue.slice(0, 240), request: question.request.slice(0, 500) }];
+  }) : [];
+  const textList = (item: unknown) => Array.isArray(item) ? item.filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0).slice(0, 32).map(entry => entry.slice(0, 500)) : [];
+  let simulation: PhotoCircuitModel["simulation"] = null;
+  if (source.simulation && typeof source.simulation === "object") {
+    const candidate = source.simulation as Record<string, unknown>;
+    const status = candidate.status;
+    const provenance = candidate.provenance;
+    const matchingDraft = candidate.draft_revision === draft.draft_revision && candidate.graph_sha256 === draft.graph_sha256;
+    if ((status === "blocked" || status === "succeeded" || status === "failed" || status === "cancelled" || status === "timed_out")
+        && (provenance === "ngspice_actual" || provenance === "none")) {
+      const voltages: Record<string, number> = {};
+      if (candidate.node_voltages_v && typeof candidate.node_voltages_v === "object") {
+        for (const [node, voltage] of Object.entries(candidate.node_voltages_v as Record<string, unknown>).slice(0, 64)) {
+          if (typeof voltage === "number" && Number.isFinite(voltage)) voltages[node.slice(0, 100)] = voltage;
+        }
+      }
+      if (status !== "succeeded" || (provenance === "ngspice_actual" && matchingDraft && draft.simulation_ready === true && typeof draft.graph_sha256 === "string")) simulation = {
+        status, provenance, node_voltages_v: voltages,
+        draft_revision: typeof candidate.draft_revision === "string" ? candidate.draft_revision : draft.draft_revision,
+        graph_sha256: typeof candidate.graph_sha256 === "string" ? candidate.graph_sha256 : null,
+        reason: typeof candidate.reason === "string" ? candidate.reason.slice(0, 500) : null,
+        conditional: true,
+        ...(typeof candidate.simulation_id === "string" ? { simulation_id: candidate.simulation_id.slice(0, 120) } : {}),
+        ...(typeof candidate.simulator_sha256 === "string" ? { simulator_sha256: candidate.simulator_sha256.slice(0, 120) } : {}),
+      };
+    }
+  }
+  return {
+    draft: {
+      context_id: draft.context_id,
+      image_revision: draft.image_revision,
+      draft_revision: draft.draft_revision,
+      graph_sha256: typeof draft.graph_sha256 === "string" ? draft.graph_sha256 : null,
+      intended_function: typeof draft.intended_function === "string" ? draft.intended_function.slice(0, 500) : null,
+      components,
+      ground_node: typeof draft.ground_node === "string" ? draft.ground_node.slice(0, 100) : null,
+      ground_source: cleanSource(draft.ground_source),
+      assumptions: textList(draft.assumptions), uncertainties: textList(draft.uncertainties), unsupported: textList(draft.unsupported),
+      questions, simulation_ready: draft.simulation_ready === true,
+      retained_refs: textList(draft.retained_refs),
+      ...(typeof draft.prior_image_revision === "string" ? { prior_image_revision: draft.prior_image_revision } : {}),
+    },
+    simulation,
+  };
+}
+
+function markCircuitModelUnverified(model: PhotoCircuitModel): PhotoCircuitModel {
+  return { ...model, draft: { ...model.draft, simulation_ready: false }, simulation: null };
+}
+
 function speakText(answer: PhotoAnswer): string {
   // Speak the active check only. The ordered plan and alternatives stay on screen.
   const parts = [answer.explanation, ...answer.next_steps.slice(0, 1)];
@@ -122,7 +203,7 @@ function testParts(step: string) {
   return { instruction: parts[0].replace(/^Test:\s*/i, ""), meanings: parts.slice(1) };
 }
 
-export default function PhotoHelpPage({ active = true, initialCapture, onCaptureConsumed, prefillQuestion = "", onPrefillConsumed, onActivity, onReadAloud, onStopSpeaking, speechAvailable = false, phoneTransfer = false, onPointWithTurret, spokenSubmission, onSpokenSubmissionConsumed, onPrepareSpeech }: PhotoHelpPageProps) {
+export default function PhotoHelpPage({ active = true, initialCapture, onCaptureConsumed, onCaptureOverview, prefillQuestion = "", onPrefillConsumed, onActivity, onReadAloud, onStopSpeaking, speechAvailable = false, phoneTransfer = false, onPointWithTurret, spokenSubmission, onSpokenSubmissionConsumed, onPrepareSpeech }: PhotoHelpPageProps) {
   const questionId = useId();
   const [images, setImages] = useState<PhotoHelpImage[]>([]);
   const [selectedId, setSelectedId] = useState("");
@@ -131,9 +212,12 @@ export default function PhotoHelpPage({ active = true, initialCapture, onCapture
   const [recordingResult, setRecordingResult] = useState(false);
   const [turns, setTurns] = useState<Turn[]>([]);
   const [busy, setBusy] = useState(false);
+  const [capturingOverview, setCapturingOverview] = useState(false);
   const [choosing, setChoosing] = useState(false);
   const [recordingQuestion, setRecordingQuestion] = useState(false);
   const [readReplies, setReadReplies] = useState(true);
+  const [circuitModel, setCircuitModel] = useState<PhotoCircuitModel | null>(null);
+  const [circuitModelRestored, setCircuitModelRestored] = useState(false);
   const consumedSpokenRef = useRef("");
   const replySpeechRef = useRef({ speechAvailable, readReplies, onReadAloud });
   replySpeechRef.current = { speechAvailable, readReplies, onReadAloud };
@@ -147,8 +231,9 @@ export default function PhotoHelpPage({ active = true, initialCapture, onCapture
   const timerRef = useRef<number | null>(null);
   const releaseTimerRef = useRef<number | null>(null);
   const generationRef = useRef(0);
+  const restorationGenerationRef = useRef(0);
   const choiceGenerationRef = useRef(0);
-  const contextIdRef = useRef(crypto.randomUUID());
+  const contextIdRef = useRef<string>(crypto.randomUUID());
   const mountedRef = useRef(false);
   const activeRef = useRef(active);
   activeRef.current = active;
@@ -170,22 +255,41 @@ export default function PhotoHelpPage({ active = true, initialCapture, onCapture
     void request("photoCancel", { context_id: contextId, ...(turnId ? { turn_id: turnId } : {}) }).catch(() => undefined);
   }
 
-  function cancelJob() {
+  function stopPendingJob() {
     stopSpeakingRef.current?.();
     generationRef.current += 1;
-    const oldContext = contextIdRef.current;
-    contextIdRef.current = crypto.randomUUID();
     if (timerRef.current !== null) window.clearTimeout(timerRef.current);
     timerRef.current = null;
+    const job = jobRef.current;
     jobRef.current = null;
-    // Also clear completed answers and history held by the local service.
-    cancelRemote(oldContext);
+    // A turn-scoped cancel stops only the pending request. Never clear the
+    // remembered circuit context just because a component unmounted or a
+    // request was superseded.
+    if (job?.turn_id) cancelRemote(job.context_id, job.turn_id);
     setBusy(false);
     activity("idle", "");
   }
 
+  function forgetCircuitContext() {
+    const oldContext = contextIdRef.current;
+    contextIdRef.current = crypto.randomUUID();
+    restorationGenerationRef.current += 1;
+    try { localStorage.removeItem(CIRCUIT_CONTEXT_STORAGE_KEY); } catch { /* unavailable in a restricted replay */ }
+    cancelRemote(oldContext);
+    setCircuitModel(null);
+    setCircuitModelRestored(false);
+  }
+
   function changeImages(next: PhotoHelpImage[]) {
-    cancelJob();
+    stopPendingJob();
+    restorationGenerationRef.current += 1;
+    if (circuitModel) {
+      setCircuitModel(markCircuitModelUnverified(circuitModel));
+      setCircuitModelRestored(true);
+    } else {
+      setCircuitModel(null);
+      setCircuitModelRestored(false);
+    }
     imagesRef.current = next;
     setImages(next);
     const selected = next.some((image) => image.image_id === selectedIdRef.current) ? selectedIdRef.current : next[0]?.image_id ?? "";
@@ -207,7 +311,7 @@ export default function PhotoHelpPage({ active = true, initialCapture, onCapture
       const notifyActiveUnmount = activeRef.current;
       mountedRef.current = false;
       choiceGenerationRef.current += 1;
-      cancelJob();
+      stopPendingJob();
       // The camera drawer unmounts when its workspace closes. This synchronous
       // cleanup clears its parent caption; late requests remain silent.
       if (notifyActiveUnmount) latestActivityRef.current?.("idle", "");
@@ -222,10 +326,37 @@ export default function PhotoHelpPage({ active = true, initialCapture, onCapture
   }, []);
 
   useEffect(() => {
+    let storedContext = "";
+    try { storedContext = localStorage.getItem(CIRCUIT_CONTEXT_STORAGE_KEY) ?? ""; } catch { return; }
+    if (!storedContext) return;
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(storedContext)) {
+      try { localStorage.removeItem(CIRCUIT_CONTEXT_STORAGE_KEY); } catch { /* unavailable storage */ }
+      return;
+    }
+    const restorationGeneration = ++restorationGenerationRef.current;
+    contextIdRef.current = storedContext;
+    void request<{ circuit_model?: unknown }>("photoCircuitStatus", { context_id: storedContext }).then((result) => {
+      if (!mountedRef.current || restorationGeneration !== restorationGenerationRef.current || imagesRef.current.length > 0 || jobRef.current) return;
+      const model = cleanCircuitModel(result?.circuit_model);
+      if (model && model.draft.context_id === storedContext) {
+        setCircuitModel(markCircuitModelUnverified(model));
+        setCircuitModelRestored(true);
+      } else {
+        try { localStorage.removeItem(CIRCUIT_CONTEXT_STORAGE_KEY); } catch { /* unavailable in a restricted replay */ }
+      }
+    }).catch(() => {
+      // Older replay fixtures may not expose photoCircuitStatus. The page remains usable without restore.
+    });
+    return () => {
+      if (restorationGeneration === restorationGenerationRef.current) restorationGenerationRef.current += 1;
+    };
+  }, []);
+
+  useEffect(() => {
     if (!active) {
       choiceGenerationRef.current += 1;
       setChoosing(false);
-      if (jobRef.current) cancelJob();
+      if (jobRef.current) stopPendingJob();
       return;
     }
     const latest = turns[turns.length - 1];
@@ -315,9 +446,19 @@ export default function PhotoHelpPage({ active = true, initialCapture, onCapture
     choiceGenerationRef.current += 1;
     const oldImages = [...imagesRef.current];
     changeImages([]);
+    forgetCircuitContext();
     oldImages.forEach((image) => release(image.image_id));
     setQuestion("");
     setChoosing(false);
+  }
+
+  async function captureOverview() {
+    if (!onCaptureOverview || capturingOverview || busy || choosing || imagesRef.current.length >= 3) return;
+    setCapturingOverview(true);
+    setError("");
+    try { await onCaptureOverview(); }
+    catch (problem) { if (mountedRef.current && activeRef.current) setError(problem instanceof Error ? problem.message : "Could not capture the live overview."); }
+    finally { if (mountedRef.current) setCapturingOverview(false); }
   }
 
   function finish(job: ActiveJob, result: PhotoJob, askedQuestion: string) {
@@ -347,6 +488,15 @@ export default function PhotoHelpPage({ active = true, initialCapture, onCapture
     setBusy(false);
     if (result.status === "completed" && result.answer) {
       const answer = cleanAnswer(result.answer, new Set(imagesRef.current.map((image) => image.image_id)));
+      const candidateModel = cleanCircuitModel(result.circuit_model);
+      const model = candidateModel && candidateModel.draft.context_id === job.context_id
+        && candidateModel.draft.image_revision === result.image_revision ? candidateModel : null;
+      setCircuitModel(model);
+      setCircuitModelRestored(false);
+      try {
+        if (model) localStorage.setItem(CIRCUIT_CONTEXT_STORAGE_KEY, job.context_id);
+        else localStorage.removeItem(CIRCUIT_CONTEXT_STORAGE_KEY);
+      } catch { /* unavailable in a restricted replay */ }
       setTurns((current) => [...current, { id: result.turn_id, question: askedQuestion, answer }].slice(-4));
       setTestResult("");
       setActiveNote(null);
@@ -365,7 +515,7 @@ export default function PhotoHelpPage({ active = true, initialCapture, onCapture
 
   function fail(job: ActiveJob, message: string) {
     if (jobRef.current !== job || generationRef.current !== job.generation || !mountedRef.current || !activeRef.current) return;
-    cancelJob();
+    stopPendingJob();
     setError(message);
     activity("error", message);
   }
@@ -432,12 +582,7 @@ export default function PhotoHelpPage({ active = true, initialCapture, onCapture
         <div className="photo-help-visual-head"><span><i /> {selected ? selected.name : "Your image goes here"}</span><div className="photo-help-zoom" aria-label="Image zoom"><button type="button" onClick={() => setZoom((value) => Math.max(1, value - .5))} disabled={!selected || zoom <= 1} aria-label="Zoom out">−</button><small>{Math.round(zoom * 100)}%</small><button type="button" onClick={() => setZoom((value) => Math.min(3, value + .5))} disabled={!selected || zoom >= 3} aria-label="Zoom in">+</button></div></div>
         {selected?.focus_region && <div className="photo-help-framing"><button type="button" className="button secondary small" onClick={() => { setWholeImage(value => !value); setZoom(1); }}>{wholeImage ? "Circuit close-up" : "Whole image"}</button><small>{wholeImage ? "Complete snapshot" : "Suggested close-up"} · the complete image is included when you ask.</small></div>}
         {selected ? <div className="photo-help-scroll" key={selected.image_id}>
-          <div className="photo-help-image-wrap" data-closeup={Boolean(crop)} style={{ width: `${zoom * 100}%`, aspectRatio: `${selected.width * (crop?.width ?? 1)} / ${selected.height * (crop?.height ?? 1)}` }}>
-            <div className="photo-help-image-coordinates" style={crop ? { width: `${100 / crop.width}%`, height: `${100 / crop.height}%`, left: `${-100 * crop.x / crop.width}%`, top: `${-100 * crop.y / crop.height}%` } : undefined}>
-            <img src={selected.data_url} alt={selected.name || "Selected circuit image"} draggable={false} />
-            {notes.map((note, index) => <button type="button" key={`${selected.image_id}-${index}`} className={`photo-help-marker ${activeNote === index ? "active" : ""}`} style={{ left: `${note.x * 100}%`, top: `${note.y * 100}%` }} hidden={Boolean(crop && (note.x < crop.x || note.x > crop.x + crop.width || note.y < crop.y || note.y > crop.y + crop.height))} title={note.label} aria-label={`Annotation ${index + 1}: ${note.label}`} onClick={() => setActiveNote(activeNote === index ? null : index)}><span>{index + 1}</span><b className={note.x > .64 ? "left" : ""}>{note.label}</b></button>)}
-            </div>
-          </div>
+          <PhotoAnnotationOverlay image={selected} notes={notes} crop={crop} zoom={zoom} activeNote={activeNote} onActiveNote={setActiveNote} />
         </div> : <div className="photo-help-empty"><span className="photo-help-empty-icon" aria-hidden="true">▧</span><strong>Start with an image</strong><p>Add a photo of your circuit or a diagram you want to understand.</p><div style={{ display: "flex", flexWrap: "wrap", justifyContent: "center", gap: 8 }}><button type="button" className="button primary" onClick={() => void chooseOrPaste("photoChooseImage")} disabled={choosing}>{choosing ? "Adding…" : "Add a photo or diagram"}<span>＋</span></button><button type="button" className="button secondary" onClick={() => void chooseOrPaste("photoPasteImage")} disabled={choosing}>Paste image</button></div><small>PNG or JPEG · up to 3 images</small></div>}
         <div className="photo-help-visual-foot"><span>{selected ? `${selected.width} × ${selected.height}${selected.resized ? " · Resized locally" : ""} · ${notes.length ? `${notes.length} marked ${notes.length === 1 ? "detail" : "details"}` : "No marked details yet"}` : "No camera needed"}</span><span>Visual guidance is not a confirmed measurement.</span></div>
       </section>
@@ -447,7 +592,9 @@ export default function PhotoHelpPage({ active = true, initialCapture, onCapture
           {images.length ? <div className="photo-help-thumbs">{images.map((image, index) => <div className={`photo-help-thumb ${selected?.image_id === image.image_id ? "selected" : ""}`} key={image.image_id}><button type="button" className="photo-help-thumb-select" onClick={() => { selectedIdRef.current = image.image_id; setSelectedId(image.image_id); setZoom(1); setActiveNote(null); }} aria-label={`View ${image.name}`} aria-pressed={selected?.image_id === image.image_id}><img src={image.data_url} alt="" /><span>{String(index + 1).padStart(2, "0")}</span></button><button type="button" className="photo-help-remove" onClick={() => removeImage(image.image_id)} aria-label={`Remove ${image.name}`} title="Remove image">×</button><small title={image.name}>{image.name}</small></div>)}</div> : <p className="photo-help-attachments-empty">Your selected images will appear here.</p>}
           {images.length > 0 && images.length < 3 && <button type="button" className="photo-help-add-text" onClick={() => void chooseOrPaste("photoChooseImage")} disabled={choosing}>＋ Add another image</button>}
           {images.length > 0 && <button type="button" className="photo-help-add-text" style={{ marginLeft: images.length < 3 ? 16 : 0 }} onClick={() => void chooseOrPaste("photoPasteImage")} disabled={choosing || images.length >= 3}>Paste image</button>}
-          <button type="button" className="button secondary small" style={{ marginTop: 12 }} onClick={clearWorkspace} disabled={!images.length && !turns.length && !question && !error && !busy && !choosing}>Clear workspace</button>
+          {onCaptureOverview && <button type="button" className="photo-help-live-capture" onClick={() => void captureOverview()} disabled={capturingOverview || busy || choosing || images.length >= 3}>{capturingOverview ? "Capturing live overview…" : "Take photo from live overview"}</button>}
+          {onCaptureOverview && <small className="photo-help-live-capture-note">Uses the connected overview camera from Live help.</small>}
+          <button type="button" className="button secondary small" style={{ marginTop: 12 }} onClick={clearWorkspace} disabled={!images.length && !turns.length && !question && !error && !busy && !choosing && !circuitModel}>Clear workspace</button>
         </section>
         <section className="panel photo-help-ask"><span className="eyebrow">02 / ASK YOUR QUESTION</span><label htmlFor={questionId}>What would you like help with?</label>
           <textarea id={questionId} value={question} onChange={(event) => setQuestion(event.target.value.slice(0, 4000))} placeholder="For example: Where should I start checking this board?" rows={4} maxLength={4000} />
@@ -457,9 +604,11 @@ export default function PhotoHelpPage({ active = true, initialCapture, onCapture
           <p className="photo-help-voice-hint">Review your question, then press Ask. Recording fills this draft only.</p><p className="photo-help-disclosure">When you press Ask, your selected images and question go to your signed-in subscription reasoning service.</p>
           <label><input type="checkbox" checked={readReplies} onChange={event => setReadReplies(event.target.checked)} /> Read replies aloud</label>
           {readReplies && !speechAvailable && <p className="photo-help-voice-hint">Enable spoken answers or a local voice in Settings to hear replies.</p>}
-          <button type="button" className="button primary photo-help-submit" onClick={() => void ask()} disabled={busy || recordingQuestion || !images.length || !question.trim()}>{busy ? "Looking at your images…" : "Ask about these images"}<span>→</span></button>{busy && <button type="button" className="photo-help-cancel" onClick={cancelJob}>Stop request</button>}{error && <p className="photo-help-error" role="alert">{error}</p>}</section>
+          <button type="button" className="button primary photo-help-submit" onClick={() => void ask()} disabled={busy || recordingQuestion || !images.length || !question.trim()}>{busy ? "Looking at your images…" : "Ask about these images"}<span>→</span></button>{busy && <button type="button" className="photo-help-cancel" onClick={stopPendingJob}>Stop request</button>}{error && <p className="photo-help-error" role="alert">{error}</p>}</section>
       </aside>
     </div>
+
+    <CircuitModelPanel model={circuitModel} restored={circuitModelRestored} busy={busy} canAskCorrection={images.length > 0} onAskCorrection={(text) => { setQuestion(text); void ask(text); }} />
 
     {latest && <section className="panel photo-help-answer" aria-live="polite"><div className="photo-help-answer-head"><span className="eyebrow">03 / WHAT I CAN SEE</span><span>Based on these images</span></div><h2>{latest.question}</h2><p className="photo-help-explanation">{latest.answer.explanation}</p>{latest.answer.limitations.length > 0 && <div className="photo-help-limits"><strong>What this view cannot confirm</strong><ul>{latest.answer.limitations.slice(0, 3).map((item, index) => <li key={index}>{item}</li>)}</ul></div>}{activeTestParts && <div className="photo-help-steps" aria-label="Ordered test plan"><strong>Test 1 · do this now</strong><p>{activeTestParts.instruction}</p>{activeTestParts.meanings.length > 0 && <ul>{activeTestParts.meanings.map((meaning,index) => <li key={index}>{meaning}</li>)}</ul>}{latest.answer.next_steps.length > 1 && <details><summary>Later tests, in order</summary><ol start={2}>{latest.answer.next_steps.slice(1,3).map((step,index) => <li key={index}>{testParts(step).instruction}</li>)}</ol><p>Wait for the current result before trying these.</p></details>}{onPointWithTurret && <button type="button" className="button secondary small" disabled={busy} onClick={() => onPointWithTurret(activeTest)}>Show this test location with the pointer</button>}<div className="photo-help-test-result"><label htmlFor="photo-test-result">What happened when you ran this test?</label><textarea id="photo-test-result" rows={2} maxLength={1200} value={testResult} onChange={event => setTestResult(event.target.value)} placeholder="Describe the meter reading, visible result, or why you could not run it." /><SpokenQuestion active={active} disabled={busy} onBeforeCapture={onStopSpeaking} onText={text => setTestResult(text.slice(0,1200))} onRecording={setRecordingResult} /><p>A spoken result fills this draft. Check it before submitting; it is a user report, not a confirmed measurement.</p><button type="button" className="button primary small" disabled={busy || recordingResult || !testResult.trim()} onClick={() => void ask(`For test 1, ${activeTestParts.instruction} The user reports: ${testResult.trim()}. Treat this as an unconfirmed user report. Explain what this result suggests, what it cannot establish, and give the single best next test with meanings for plausible results.`)}>Explain this result and choose next test</button></div></div>}{speechAvailable && onReadAloud && <button type="button" className="button secondary photo-help-listen" onClick={() => onReadAloud(speakText(latest.answer))}>Listen to current guidance <span>▶</span></button>}{(latest.answer.observations.length > 0 || latest.answer.questions.length > 0 || latest.answer.limitations.length > 3) && <details className="photo-help-details"><summary>More detail and uncertainty</summary>{latest.answer.observations.length > 0 && <div><strong>Visible details</strong><ul>{latest.answer.observations.map((item, index) => <li key={index}>{item}</li>)}</ul></div>}{latest.answer.questions.length > 0 && <div><strong>Helpful follow-up questions</strong><ul>{latest.answer.questions.map((item, index) => <li key={index}>{item}</li>)}</ul></div>}{latest.answer.limitations.length > 3 && <div><strong>Other limits</strong><ul>{latest.answer.limitations.slice(3).map((item, index) => <li key={index}>{item}</li>)}</ul></div>}</details>}</section>}
     {turns.length > 1 && <section className="photo-help-recent" aria-label="Recent questions"><span className="eyebrow">RECENT QUESTIONS</span>{turns.slice(0, -1).map((turn) => <details key={turn.id}><summary>{turn.question}</summary><p>{turn.answer.explanation}</p></details>)}</section>}

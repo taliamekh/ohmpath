@@ -24,7 +24,11 @@ test('simulated keyboard lock holds arrows continuously and releases on keyup, E
     page.setDefaultTimeout(6000);
     // Only this offline, hardware-free fixture treats the hidden page as focused.
     await page.evaluate(() => {document.hasFocus = () => true;});
-    await page.getByTitle('Turret', {exact:true}).click();
+    await page.getByRole('button',{name:'Photo help',exact:false}).first().click();
+    await page.getByRole('button',{name:'Add a photo or diagram',exact:false}).click();
+    await page.getByLabel('What would you like help with?').fill('Point to the current check.');
+    await page.getByRole('button',{name:'Ask about these images',exact:false}).click();
+    await page.getByRole('button',{name:'Show this test location with the pointer'}).click();
     await page.getByRole('button', {name:'Connect Pi',exact:true}).click();
     await expect(page.getByLabel('Laser power is disconnected.')).toHaveCount(0);
     await page.getByRole('button', {name:'Enable movement',exact:true}).click();

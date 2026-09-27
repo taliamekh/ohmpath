@@ -99,7 +99,10 @@ def test_photo_context_followup_revision_and_ephemeral_files(tmp_path):
         assert observed[0][3] == [png()]
         assert all(not path.exists() for path in observed[0][2])
 
-        follow = client.post("/v1/photo-help/investigate", json=first, headers=headers)
+        follow_payload = dict(first, question=("For test 1, inspect the marked trace. "
+            "The user reports: The trace looks intact. Treat this as an unconfirmed user report. "
+            "Explain what that means."))
+        follow = client.post("/v1/photo-help/investigate", json=follow_payload, headers=headers)
         assert poll(client, follow.json()["turn_id"])["status"] == "completed"
         assert len(observed[1][1]) == 1
         assert observed[1][0] == observed[0][0]
@@ -107,11 +110,19 @@ def test_photo_context_followup_revision_and_ephemeral_files(tmp_path):
         changed = request(context, [(image_id, png(3, 2))])
         changed_turn = client.post("/v1/photo-help/investigate", json=changed, headers=headers)
         assert poll(client, changed_turn.json()["turn_id"])["status"] == "completed"
-        assert observed[2][1] == []
+        assert len(observed[2][1]) == 2
+        assert observed[2][1][0]["ordered_tests"] == ["Inspect the trace with power off."]
+        assert observed[2][1][1]["reported_result"] == {
+            "text": "The trace looks intact.", "provenance": "user_reported_unconfirmed"}
+        assert all("annotations" not in item and "observations" not in item for item in observed[2][1])
+        assert observed[2][1][0]["image_revision"] != observed[2][0]
         assert observed[2][0] != observed[0][0]
         stale = client.get(f"/v1/photo-help/{started.json()['turn_id']}", headers=headers).json()
         assert stale["status"] == "stale" and "answer" not in stale
         assert base64.b64encode(png()).decode() not in json.dumps(app.state.photo_help.contexts)
+        assert client.post("/v1/photo-help/cancel", json={"context_id": context}, headers=headers).status_code == 200
+        assert context not in app.state.photo_help.contexts
+        assert app.state.photo_help.reconstruction.snapshot(context) is None
 
 
 def test_photo_cancel_and_legacy_admission(tmp_path):
@@ -153,6 +164,27 @@ def test_bad_annotation_fails_closed_without_echoing_provider_message(tmp_path):
         result = poll(client, started.json()["turn_id"])
         assert result["status"] == "failed" and "answer" not in result
         assert "secret-provider-path" not in json.dumps(result)
+
+
+def test_validation_logs_only_bounded_stage_and_keeps_user_error_generic(caplog):
+    manager = PhotoHelp(lambda _, __, ___, images, ____, _____: {
+        **answer(images[0][0]), "next_steps": ["private-marker" * 60]})
+    payload = request()
+    with caplog.at_level("WARNING", logger="ohmpath.ai.photo_help"):
+        started = manager.start(payload["context_id"], payload["question"], payload["images"])
+        try:
+            deadline = time.monotonic() + 1
+            result = manager.status(started["turn_id"])
+            while result["status"] == "running" and time.monotonic() < deadline:
+                time.sleep(.01)
+                result = manager.status(started["turn_id"])
+        finally:
+            manager.close()
+    assert result["status"] == "failed"
+    assert result["error"] == "invalid_model_output"
+    assert "validation_failed stage=next_steps_shape" in caplog.text
+    assert "private-marker" not in caplog.text
+    assert "private-marker" not in json.dumps(result)
 
 
 def test_cancel_context_before_late_start_blocks_model_turn(tmp_path):

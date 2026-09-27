@@ -18,7 +18,9 @@ const audit = { asks: 0, transcriptions: 0, microphoneEnables: 0,
 let piConnected = false;
 let window;
 let currentSpeech = null;
+let transcriptText = 'Where is the ground connection?';
 function handle(event, action, payload = {}) {
+  if (action === 'testSetTranscript') { transcriptText = payload.text; return {}; }
   if (action === 'health') return { status: 'ready', hardware: 'disabled', reasoning: 'subscription_on_request' };
   if (action === 'sessions') return [];
   if (action === 'turretStatus') return { enabled: false, connected: false, motion_enabled: false, laser_enabled: false };
@@ -40,7 +42,7 @@ function handle(event, action, payload = {}) {
     if (wav.length < 46 || wav.length > 1500000 || wav.toString('ascii', 0, 4) !== 'RIFF')
       throw new Error('Invalid synthetic WAV.');
     audit.transcriptions += 1;
-    return { text: 'Where is the ground connection?', status: 'final', local_only: true };
+    return { text: transcriptText, status: 'final', local_only: true };
   }
   if (action === 'photoChooseImage') return { image: { image_id: imageId, name: 'Synthetic circuit.png',
     data_url: 'data:image/png;base64,' + png, width: 1, height: 1 } };
@@ -116,21 +118,22 @@ app.on('window-all-closed', () => app.quit());
 const fakeAudio = String.raw`
 (() => {
   const audit = { activeTracks: 0, createdTracks: 0, stoppedTracks: 0,
-    microphoneRequests: 0, audioContexts: 0, frames: 0, sourceStarts: 0, sourceStops: 0 };
+    microphoneRequests: 0, deviceIds: [], audioContexts: 0, frames: 0, sourceStarts: 0, sourceStops: 0 };
   Object.defineProperty(window, '__syntheticAudio', { value: audit });
   const fakeMedia = { getUserMedia: async constraints => {
     if (!constraints.audio || constraints.video !== false) throw new Error('Only synthetic audio is available.');
     audit.microphoneRequests += 1;
+    audit.deviceIds.push(constraints.audio.deviceId?.exact || 'default');
     audit.activeTracks += 1;
     audit.createdTracks += 1;
-    const track = { stopped: false, stop() {
+    const track = { label: 'Synthetic microphone', stopped: false, stop() {
       if (this.stopped) return;
       this.stopped = true;
       audit.activeTracks -= 1;
       audit.stoppedTracks += 1;
     } };
     return { getTracks: () => [track], getAudioTracks: () => [track] };
-  } };
+  }, enumerateDevices: async () => [{ kind: 'audioinput', deviceId: 'synthetic-usb', label: 'Synthetic USB microphone' }] };
   Object.defineProperty(navigator, 'mediaDevices', { configurable: true, value: fakeMedia });
   class FakeAudioContext {
     constructor(options = {}) {
@@ -202,6 +205,15 @@ test('photo drafts and live spoken questions produce bounded speech without a me
     const audit = () => page.evaluate(() => (window as any).ohmpath.request('testVoiceAudit'));
     const synthetic = () => page.evaluate(() => (window as any).__syntheticAudio);
 
+    // Live speech must retain its draft even with both camera feeds off.
+    await expect(page.getByText('Finish and open Photo help to review your question with the current camera view before sending it.')).toHaveCount(0);
+    await page.getByRole('button', { name: 'Push to talk' }).click();
+    await expect.poll(async () => (await synthetic()).frames).toBeGreaterThan(0);
+    await page.getByRole('button', { name: 'Mic on · Finish' }).click();
+    await expect(page.getByLabel('What would you like help with?')).toHaveValue('Where is the ground connection?');
+    expect((await audit()).asks).toBe(0);
+    expect((await audit()).captures).toHaveLength(0);
+
     await page.getByRole('button', { name: 'Photo help', exact: false }).first().click();
     await expect(page.getByRole('button', { name: 'Start recording' })).toBeEnabled();
     await page.getByRole('button', { name: 'Start recording' }).click();
@@ -211,14 +223,17 @@ test('photo drafts and live spoken questions produce bounded speech without a me
     await page.getByRole('button', { name: 'Finish recording' }).click();
     await expect(page.getByLabel('What would you like help with?')).toHaveValue('Where is the ground connection?');
     await expect.poll(async () => (await synthetic()).activeTracks).toBe(0);
-    expect((await audit()).transcriptions).toBe(1);
+    expect((await audit()).transcriptions).toBe(2);
     expect((await audit()).asks).toBe(0);
 
+    await page.locator('.photo-help-ask').getByText('Microphone', { exact: true }).click();
+    await page.locator('.photo-help-ask').getByLabel('Microphone source').selectOption('synthetic-usb');
     await page.getByRole('button', { name: 'Start recording' }).click();
     await expect.poll(async () => (await synthetic()).activeTracks).toBe(1);
+    expect((await synthetic()).deviceIds.at(-1)).toBe('synthetic-usb');
     await page.getByRole('button', { name: 'Cancel recording' }).click();
     await expect.poll(async () => (await synthetic()).activeTracks).toBe(0);
-    expect((await audit()).transcriptions).toBe(1);
+    expect((await audit()).transcriptions).toBe(2);
 
     await page.getByRole('button', { name: 'Start recording' }).click();
     await expect.poll(async () => (await synthetic()).activeTracks).toBe(1);
@@ -242,12 +257,12 @@ test('photo drafts and live spoken questions produce bounded speech without a me
     expect((await synthetic()).sourceStops).toBeGreaterThan(0);
 
     await page.getByRole('button', { name: 'Live help', exact: false }).first().click();
-    await page.getByRole('button', { name: 'Turn on Turret', exact: true }).click();
-    await expect(page.getByRole('button', { name: 'Talk to helper' })).toBeEnabled();
+    await page.getByRole('button', { name: 'Turn on Turret camera', exact: true }).click();
+    await expect(page.getByRole('button', { name: 'Push to talk' })).toBeEnabled();
     const recordedBefore = (await synthetic()).frames;
-    await page.getByRole('button', { name: 'Talk to helper' }).click();
+    await page.getByRole('button', { name: 'Push to talk' }).click();
     await expect.poll(async () => (await synthetic()).frames).toBeGreaterThan(recordedBefore);
-    await page.getByRole('button', { name: 'Finish and open Photo help' }).click();
+    await page.getByRole('button', { name: 'Mic on · Finish' }).click();
     await expect(page.getByLabel('What would you like help with?')).toHaveValue('Where is the ground connection?');
     await page.getByRole('button', { name: 'Ask about these images' }).click();
     await expect(page.locator('.photo-help-explanation')).toHaveText('Synthetic replay explanation.');
@@ -265,6 +280,16 @@ test('photo drafts and live spoken questions produce bounded speech without a me
     expect(live.speaks.every(item => item.text.length <= 1000)).toBe(true);
     expect((await synthetic()).activeTracks).toBe(0);
     expect((await audit()).unexpected).toEqual([]);
+    await page.getByLabel('What would you like help with?').fill('Keep this draft.');
+    await page.evaluate(() => (window as any).ohmpath.request('testSetTranscript', { text: '[BLANK_AUDIO]' }));
+    const beforeBlank = (await synthetic()).frames;
+    await page.getByRole('button', { name: 'Start recording' }).click();
+    await expect.poll(async () => (await synthetic()).frames).toBeGreaterThan(beforeBlank);
+    await page.getByRole('button', { name: 'Finish recording' }).click();
+    await expect(page.getByText('No speech detected. Try again.')).toBeVisible();
+    await expect(page.getByLabel('What would you like help with?')).toHaveValue('Keep this draft.');
+    expect((await audit()).asks).toBe(2);
+    expect((await synthetic()).activeTracks).toBe(0);
     await page.close();
     await expect.poll(() => desktop.exitCode, { timeout: 8000 }).toBe(0);
   } finally {

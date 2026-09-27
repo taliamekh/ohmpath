@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import "./camera-workspace.css";
-import VisionOverlay from "./VisionOverlay";
 import PhoneLiveCamera from "./PhoneLiveCamera";
 import CameraFraming, { suggestMediaRegion } from "./CameraFraming";
 import { suggestCircuitRegion, type FrameRegion } from "./circuit-framing";
@@ -24,10 +23,10 @@ type Props = {
   caption?: string;
   subtitlesEnabled?: boolean;
   onSubtitlesChange?: (enabled: boolean) => void;
+  headerActions?: ReactNode;
+  onRegisterOverviewCapture?: (capture: (() => Promise<void>) | null) => void;
   onFocusChange?: (focused: boolean) => void;
   onPause?: () => void;
-  speechPending?: boolean;
-  onStopSpeaking?: () => void;
 };
 type CameraDevice = { deviceId: string; label: string };
 type PiFrame = { url: string; receivedAt: number };
@@ -85,7 +84,7 @@ async function decodeJpeg(url: string): Promise<HTMLImageElement> {
   return image;
 }
 
-export default function CameraWorkspace({ paused, reservedForTurret = false, onSnapshot, onActivity, guide, voiceControl, caption, subtitlesEnabled, onSubtitlesChange, onFocusChange, onPause, speechPending, onStopSpeaking }: Props) {
+export default function CameraWorkspace({ paused, reservedForTurret = false, onSnapshot, onActivity, guide, voiceControl, caption, subtitlesEnabled, onSubtitlesChange, headerActions, onRegisterOverviewCapture, onFocusChange, onPause }: Props) {
   const [devices, setDevices] = useState<CameraDevice[]>([]);
   const [selectedDevice, setSelectedDevice] = useState("");
   const [overviewEnabled, setOverviewEnabled] = useState(false);
@@ -107,7 +106,6 @@ export default function CameraWorkspace({ paused, reservedForTurret = false, onS
   const [clock, setClock] = useState(Date.now());
   const [focused, setFocused] = useState(false);
   const [localSubtitlesEnabled, setLocalSubtitlesEnabled] = useState(true);
-  const [trackingEnabled, setTrackingEnabled] = useState(false);
   const [straightenOverhead, setStraightenOverhead] = useState(true);
   const [overheadTilt, setOverheadTilt] = useState(0);
   const [alignmentHint, setAlignmentHint] = useState("");
@@ -120,6 +118,7 @@ export default function CameraWorkspace({ paused, reservedForTurret = false, onS
   const focusedRef = useRef(false);
   const fallbackFocusRef = useRef(false);
   const nativeFocusActiveRef = useRef(false);
+  const overviewCaptureRef = useRef<() => Promise<void>>(() => Promise.resolve());
   const focusRequestGeneration = useRef(0);
   const focusPendingRef = useRef(false);
   const inertSiblings = useRef<{ element: HTMLElement; previous: boolean }[]>([]);
@@ -280,7 +279,7 @@ export default function CameraWorkspace({ paused, reservedForTurret = false, onS
     lastOverviewFrameAt.current = 0;
     lastAlignmentAt.current = 0;
     alignmentCandidate.current = { angle: 0, count: 0 };
-    if (mountedRef.current) { setOverviewEnabled(false); setTrackingEnabled(false); setOverheadTilt(0); setAlignmentHint(""); }
+    if (mountedRef.current) { setOverviewEnabled(false); setOverheadTilt(0); setAlignmentHint(""); }
   }, []);
 
   function stopAllOverview() {
@@ -651,6 +650,14 @@ export default function CameraWorkspace({ paused, reservedForTurret = false, onS
     }
   }
 
+  overviewCaptureRef.current = () => captureSelected(undefined, "overview");
+
+  useEffect(() => {
+    const capture = () => overviewCaptureRef.current();
+    onRegisterOverviewCapture?.(capture);
+    return () => onRegisterOverviewCapture?.(null);
+  }, [onRegisterOverviewCapture]);
+
   const freshPiFrame = piConnected && piFrame && clock - piFrame.receivedAt <= FRAME_MAX_AGE_MS ? piFrame : null;
   const currentSource = snapshotSource === "overview" ? overviewEnabled : Boolean(freshPiFrame);
   const selectedCameraName = overviewKind === "phone" ? "Phone camera" : devices.find((device) => device.deviceId === selectedDevice)?.label;
@@ -713,12 +720,7 @@ export default function CameraWorkspace({ paused, reservedForTurret = false, onS
         {focused && <button ref={focusButtonRef} type="button" className="camera-workspace-focus-button camera-workspace-exit" onClick={() => void exitFocus()}><span aria-hidden="true">← </span>Exit full screen</button>}
         <div><h1>Live help</h1></div>
       </div>
-      <div className="camera-workspace-head-actions"><div className="camera-workspace-power" role="group" aria-label="Camera power">
-      <button type="button" className={overviewEnabled ? "is-turn-off" : "is-turn-on"} onClick={toggleOverviewCamera} disabled={paused || overviewBusy || (!overviewEnabled && !selectedDevice)} title={!overviewEnabled && !selectedDevice ? "Choose a Windows camera under Camera setup, or connect a phone from the overview feed." : undefined}>{overviewBusy ? "Overview starting…" : overviewEnabled ? "Turn off overview" : "Turn on overview"}</button>
-        <button type="button" className={piConnected ? "is-turn-off" : "is-turn-on"} onClick={toggleTurretCamera} disabled={paused || piBusy || reservedForTurret}>{piBusy ? "Turret starting…" : piConnected ? "Turn off Turret" : "Turn on Turret"}</button>
-      </div>
-      <button type="button" className="button primary small camera-workspace-photo-action" onClick={() => void captureSelected(undefined, "overview")} disabled={paused || snapshotBusy || !overviewEnabled} title={!overviewEnabled ? "Turn on the overview camera first." : undefined}>{snapshotBusy ? "Preparing photo…" : "Take photo for Photo help"}<span>→</span></button>
-      <button type="button" className="camera-workspace-subtitles-button" onClick={toggleSubtitles} aria-pressed={subtitlesEnabled ?? localSubtitlesEnabled}>{(subtitlesEnabled ?? localSubtitlesEnabled) ? "Subtitles on" : "Subtitles off"}</button>{!focused && <button ref={focusButtonRef} type="button" className="camera-workspace-focus-button" onClick={() => void enterFocus()}>Full screen</button>}</div>
+      <div className="camera-workspace-head-actions">{!focused && <>{headerActions}<button ref={focusButtonRef} type="button" className="camera-workspace-focus-button" onClick={() => void enterFocus()}>Full screen</button></>}</div>
     </header>
 
     <div className={`camera-workspace-stage camera-workspace-stage-${layout}`}>
@@ -728,9 +730,6 @@ export default function CameraWorkspace({ paused, reservedForTurret = false, onS
             <video ref={videoRef} autoPlay muted playsInline className={overviewEnabled ? "is-visible" : ""} aria-label="Local overview camera preview" />
           </CameraFraming>
           {overviewEnabled && closeUpPicker("overview")}
-          <VisionOverlay source="overview" region={overviewRegion} enabled={trackingEnabled && !pickCloseUp && snapshotSource === "overview" && overviewEnabled && !paused}
-            getFrame={() => videoRef.current && videoRef.current.readyState >= 2 && Date.now() - lastOverviewFrameAt.current <= 1000
-              ? { media: videoRef.current, stamp: videoRef.current.currentTime } : null} />
         </div>
         {!overviewEnabled && <div className="camera-workspace-empty"><span className="camera-workspace-empty-icon">◉</span><strong>Overview camera is off</strong></div>}
         <PhoneLiveCamera paused={paused} stopSignal={phoneStopSignal} showLauncher={!overviewEnabled}
@@ -738,11 +737,8 @@ export default function CameraWorkspace({ paused, reservedForTurret = false, onS
         <div className="camera-workspace-feed-label"><span className={overviewEnabled ? "camera-workspace-dot is-live" : "camera-workspace-dot"} /> {overviewKind === "phone" ? "Phone" : "Overview"} <small>{overviewEnabled ? `Direct preview · ${overviewResolution}` : "Not connected"}</small></div>
       </div>
       <div className="camera-workspace-feed camera-workspace-pi">
-        {freshPiFrame ? <CameraFraming region={piRegion} width={piImageRef.current?.naturalWidth ?? 0} height={piImageRef.current?.naturalHeight ?? 0}><img ref={piImageRef} src={freshPiFrame.url} alt="Latest Turret camera frame" /></CameraFraming> : <div className="camera-workspace-empty"><span className="camera-workspace-empty-icon">◎</span><strong>{piConnected ? "Waiting for a current frame" : "Turret camera is off"}</strong><span>{piConnected ? "The preview clears when the frame is stale." : "Turn on the Turret camera from the top menu."}</span></div>}
+        {freshPiFrame ? <CameraFraming region={piRegion} width={piImageRef.current?.naturalWidth ?? 0} height={piImageRef.current?.naturalHeight ?? 0}><img ref={piImageRef} src={freshPiFrame.url} alt="Latest Turret camera frame" /></CameraFraming> : <div className="camera-workspace-empty"><span className="camera-workspace-empty-icon">◎</span><strong>{piConnected ? "Waiting for a current frame" : "Turret camera is off"}</strong><span>{piConnected ? "The preview clears when the frame is stale." : "Turn on the Turret camera from the controls below."}</span></div>}
         {freshPiFrame && closeUpPicker("pi")}
-        <VisionOverlay source="pi" region={piRegion} enabled={trackingEnabled && !pickCloseUp && snapshotSource === "pi" && Boolean(freshPiFrame) && !paused}
-          getFrame={() => freshPiFrame && piImageRef.current?.complete && piImageRef.current.naturalWidth > 0 && Date.now() - freshPiFrame.receivedAt <= 1000
-            ? { media: piImageRef.current, stamp: freshPiFrame.receivedAt } : null} />
         <div className="camera-workspace-feed-label"><span className={freshPiFrame ? "camera-workspace-dot is-live" : "camera-workspace-dot"} /> Turret <small>{freshPiFrame ? "Current frame" : piConnected ? "No current frame" : "Not connected"}</small></div>
       </div>
       {voiceControl && <div className="camera-workspace-voice-control">{typeof voiceControl === "function" ? voiceControl(captureSelected) : voiceControl}</div>}
@@ -750,20 +746,24 @@ export default function CameraWorkspace({ paused, reservedForTurret = false, onS
       {(subtitlesEnabled ?? localSubtitlesEnabled) && caption?.trim() && <p className="camera-workspace-focus-caption" aria-label="Camera subtitles" aria-live="polite" tabIndex={0}>{caption}</p>}
     </div>
 
-    {focused && <div className="camera-workspace-focus-bar"><span>{paused ? "Previews stopped" : overviewEnabled || freshPiFrame ? "Camera preview · local" : "No camera connected"}</span><div>{speechPending && onStopSpeaking && <button type="button" onClick={onStopSpeaking}>Stop speaking</button>}<button type="button" onClick={toggleSubtitles} aria-pressed={subtitlesEnabled ?? localSubtitlesEnabled}>{(subtitlesEnabled ?? localSubtitlesEnabled) ? "Subtitles on" : "Subtitles off"}</button><button type="button" onClick={() => { stopAllOverview(); void disconnectPi(); onPause?.(); }} disabled={paused}>Pause previews</button><button type="button" onClick={() => void exitFocus()}>Exit full screen</button></div></div>}
+    <nav className="camera-controls-menu" aria-label="Live help camera controls">
+      <div className="camera-controls-actions">
+        <div className="camera-workspace-power" role="group" aria-label="Camera power">
+          <button type="button" className={overviewEnabled ? "is-turn-off" : "is-turn-on"} onClick={toggleOverviewCamera} disabled={paused || overviewBusy || (!overviewEnabled && !selectedDevice)} title={!overviewEnabled && !selectedDevice ? "Choose a Windows camera under Camera setup, or connect a phone from the overview feed." : undefined}>{overviewBusy ? "Start overview camera" : overviewEnabled ? "Turn off overview camera" : "Turn on overview camera"}</button>
+          <button type="button" className={piConnected ? "is-turn-off" : "is-turn-on"} onClick={toggleTurretCamera} disabled={paused || piBusy || reservedForTurret}>{piBusy ? "Start Turret camera" : piConnected ? "Turn off Turret camera" : "Turn on Turret camera"}</button>
+        </div>
+        <div className="camera-view-segmented" role="group" aria-label="Camera framing view">
+          <button type="button" className="camera-view-option" aria-pressed={focusCloseUp} disabled={!currentSource || paused} onClick={() => { setFocusCloseUp(true); setPickCloseUp(!circuitFocus); }}>Close-up view</button>
+          <button type="button" className="camera-view-option" aria-pressed={!focusCloseUp} disabled={!currentSource || paused} onClick={() => { setFocusCloseUp(false); setPickCloseUp(false); }}>Full camera view</button>
+        </div>
+        <button type="button" className="camera-workspace-focus-button" aria-pressed={straightenOverhead} onClick={() => { setStraightenOverhead(value => !value); setOverheadTilt(0); setAlignmentHint(""); lastAlignmentAt.current = 0; }}>Auto straighten overhead: {straightenOverhead ? "On" : "Off"}</button>
+        <button type="button" className="camera-workspace-subtitles-button" onClick={toggleSubtitles} aria-pressed={subtitlesEnabled ?? localSubtitlesEnabled}>{(subtitlesEnabled ?? localSubtitlesEnabled) ? "Subtitles: On" : "Subtitles: Off"}</button>
+        <button type="button" className="camera-workspace-focus-button" onClick={() => { stopAllOverview(); void disconnectPi(); onPause?.(); }} disabled={paused}>Pause camera previews</button>
+      </div>
+      {Boolean(alignmentHint || straightenOverhead && overheadTilt) && <small className="camera-controls-status">{alignmentHint || `Display rotated ${Math.abs(overheadTilt).toFixed(0)}° and zoomed to fill; snapshots keep original pixels.`}</small>}
+    </nav>
 
     {snapshotError && <p className="camera-workspace-error" role="status">{snapshotError}</p>}
-    <div className="camera-closeup-controls">
-      {circuitFocus && <button type="button" className="camera-workspace-focus-button" onClick={() => { setFocusCloseUp(value => !value); setPickCloseUp(false); }}>{focusCloseUp ? "Whole camera view" : "Circuit close-up"}</button>}
-      <button type="button" className="camera-workspace-focus-button" disabled={!currentSource || paused} aria-pressed={pickCloseUp} onClick={() => setPickCloseUp(value => !value)}>{pickCloseUp ? "Cancel close-up selection" : "Choose close-up"}</button>
-      <small>{circuitFocus && focusCloseUp ? "Suggested close-up · the whole snapshot is kept for context." : "Photos automatically enlarge a clear circuit area. You can also choose its center."}</small>
-    </div>
-    <div className="camera-overhead-controls"><button type="button" className="camera-workspace-focus-button" aria-pressed={straightenOverhead} onClick={() => { setStraightenOverhead(value => !value); setOverheadTilt(0); setAlignmentHint(""); lastAlignmentAt.current = 0; }}>Auto straighten overhead {straightenOverhead ? "on" : "off"}</button><small>{straightenOverhead && overheadTilt ? `Display rotated ${Math.abs(overheadTilt).toFixed(0)}° and zoomed to fill; snapshots keep original pixels.` : alignmentHint || "Straightens and crops a clear board angle so the background stays out of view."}</small></div>
-    <div className="camera-vision-controls">
-      <button type="button" className="button secondary small" disabled={paused || !currentSource} aria-pressed={trackingEnabled}
-        onClick={() => setTrackingEnabled(value => !value)}>{trackingEnabled ? "Stop visual tracking" : "Track a point locally"}</button>
-      <p>Follow a selected feature in the chosen view. Frames stay on this computer; the question workspace uses a separate snapshot.</p>
-    </div>
 
     <details className="camera-workspace-setup">
       <summary>Camera setup <span>{overviewEnabled ? selectedCameraName || "Overview connected" : "Overview off"} · {piConnected ? "Turret connected" : "Turret off"}</span></summary>

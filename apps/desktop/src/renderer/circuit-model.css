@@ -1,0 +1,43 @@
+.circuit-model-panel { margin-top: 16px; padding: 21px 24px; }
+.circuit-model-heading, .circuit-model-subheading { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
+.circuit-model-heading h2 { margin: 5px 0 0; color: #f1f8f5; font: 600 19px/1.25 var(--display); }
+.circuit-model-badge { flex: 0 0 auto; padding: 5px 8px; border: 1px solid #3f806b; border-radius: 4px; color: #a9efd5; font: 700 9px var(--mono); letter-spacing: .08em; }
+.circuit-model-badge.unverified { border-color: #876c3e; color: #f0ce91; }
+.circuit-model-summary { max-width: 880px; margin: 11px 0 16px; color: #bcd2cf; font-size: 12px; line-height: 1.55; }
+.circuit-model-table-wrap { overflow-x: auto; border: 1px solid #2a4e4d; border-radius: 6px; }
+.circuit-model-table { width: 100%; border-collapse: collapse; min-width: 650px; color: #d6e7e2; font-size: 10px; }
+.circuit-model-table caption { padding: 10px 12px; background: #102d2b; color: #9bc8bb; text-align: left; font-size: 10px; }
+.circuit-model-table th, .circuit-model-table td { padding: 9px 10px; border-top: 1px solid #243f42; text-align: left; vertical-align: top; }
+.circuit-model-table thead th { border-top: 0; background: #0c2229; color: #8eb4b1; font: 700 9px var(--mono); letter-spacing: .04em; text-transform: uppercase; }
+.circuit-model-table tbody th { color: #a9e1cd; font: 700 10px var(--mono); white-space: nowrap; }
+.circuit-model-table td:last-child { max-width: 190px; color: #91b1ad; font-size: 9px; }
+.circuit-model-muted { margin: 12px 0 0; color: #8ea7a7; font-size: 10px; }
+.circuit-model-questions { margin-top: 16px; padding: 12px 14px; border: 1px solid #755d3b; border-radius: 6px; background: #302619; color: #f3dec0; }
+.circuit-model-questions strong { font-size: 11px; }
+.circuit-model-questions ul { display: grid; gap: 9px; margin: 9px 0 0; padding-left: 18px; font-size: 10px; }
+.circuit-model-questions li span, .circuit-model-questions li small { display: block; }
+.circuit-model-questions li small { margin-top: 3px; color: #e2cda7; line-height: 1.45; }
+.circuit-model-notes { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; margin-top: 15px; color: #b8ceca; font-size: 10px; line-height: 1.45; }
+.circuit-model-notes > div { padding: 10px 12px; border: 1px solid #2b4f51; border-radius: 5px; background: #0d242b; }
+.circuit-model-notes strong { color: #cfe6df; font-size: 10px; }
+.circuit-model-notes ul { margin: 6px 0 0; padding-left: 17px; }
+.circuit-model-simulation { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line); }
+.circuit-model-subheading strong { color: #d9eee7; font-size: 12px; }
+.circuit-model-subheading span { color: #8bc8b1; font: 9px var(--mono); text-transform: uppercase; }
+.circuit-model-status { margin-top: 10px; padding: 11px 13px; border-radius: 5px; }
+.circuit-model-status.blocked { border: 1px solid #755d3b; background: #302619; color: #f0d5a9; }
+.circuit-model-status.succeeded { border: 1px solid #2e735f; background: #102d2a; color: #d5f2e6; }
+.circuit-model-status strong { font-size: 11px; }
+.circuit-model-status p { margin: 6px 0; font-size: 10px; line-height: 1.5; }
+.circuit-model-status small { color: #b8cfc8; font-size: 9px; }
+.circuit-model-status dl { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 7px; margin: 10px 0 0; }
+.circuit-model-status dl div { display: flex; justify-content: space-between; gap: 8px; padding: 6px 7px; border: 1px solid #2f5d56; border-radius: 4px; background: #0c2524; font: 10px var(--mono); }
+.circuit-model-status dt { color: #9cc4ba; }
+.circuit-model-status dd { margin: 0; color: #d7f2e7; }
+.circuit-model-correction { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line); }
+.circuit-model-correction label { display: block; margin-bottom: 8px; color: #d9eee7; font-size: 11px; font-weight: 700; }
+.circuit-model-correction > div { display: flex; gap: 8px; }
+.circuit-model-correction input { min-width: 0; flex: 1; padding: 10px; border: 1px solid #31545d; border-radius: 5px; outline: none; background: #0b1c25; color: #e3f4f2; font: 11px var(--display); }
+.circuit-model-correction input:focus { border-color: #6accbc; box-shadow: 0 0 0 2px #52c8b229; }
+.circuit-model-correction small { display: block; margin-top: 7px; color: #82aaa7; font-size: 9px; }
+@media (max-width: 620px) { .circuit-model-heading { align-items: flex-start; flex-direction: column; } .circuit-model-correction > div { align-items: stretch; flex-direction: column; } .circuit-model-correction .button { width: 100%; } }

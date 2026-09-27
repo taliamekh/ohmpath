@@ -18,6 +18,7 @@ const audit = { asks: [], cancels: [], releases: [], captures: [], choices: 0, p
 const piReplay = { connected: false, jpeg_base64: '', reason: '', connects: 0, disconnects: 0, frameCalls: 0, lastPort: null,
   failConnectOnce: false, failFrameOnce: false, failStatusOnce: false, frameMissingOnce: false };
 const jobs = new Map();
+const circuitModels = new Map();
 let resolveLateAsk;
 let delayNextChoice = false;
 let resolveLateChoice;
@@ -73,6 +74,24 @@ function jobFor(payload) {
   jobs.set(turn_id, job);
   audit.asks.push({ context_id: job.context_id, turn_id, question: job.question, image_ids: job.image_ids });
   return job;
+}
+
+function circuitFor(job) {
+  const corrected = job.question.includes('2200');
+  const revision = (corrected ? 'b' : 'a').repeat(64);
+  const model = { draft: { context_id: job.context_id, image_revision: job.image_revision,
+    draft_revision: revision, graph_sha256: revision, intended_function: 'Replay divider',
+    components: [{ ref: 'R1', kind: 'resistor', nodes: ['VIN', 'MID'], value_si: corrected ? 2200 : null,
+      source: 'image_visible', value_source: corrected ? 'user_reported' : 'unknown', connection_source: 'user_reported' }],
+    ground_node: 'GND', ground_source: 'user_reported', assumptions: [], uncertainties: [], unsupported: [],
+    questions: corrected ? [] : [{ target: 'R1', issue: 'value unreadable', request: 'What is the value of R1?' }],
+    simulation_ready: corrected, retained_refs: [] }, simulation: corrected ? {
+      status: 'succeeded', draft_revision: revision, graph_sha256: revision, provenance: 'ngspice_actual',
+      node_voltages_v: { MID: 3.125 }, reason: null, conditional: true,
+    } : null };
+  // UI-only fixture: provenance exercises display, never claims a simulator ran.
+  circuitModels.set(job.context_id, model);
+  return model;
 }
 
 function handle(action, payload = {}) {
@@ -168,6 +187,7 @@ function handle(action, payload = {}) {
     }
     return { ...job };
   }
+  if (action === 'photoCircuitStatus') return { circuit_model: circuitModels.get(payload.context_id) ?? null };
   if (action === 'photoStatus') {
     audit.statusChecks += 1;
     const job = jobs.get(payload.turn_id);
@@ -176,21 +196,28 @@ function handle(action, payload = {}) {
       return { turn_id: job.turn_id, status: 'failed', context_id: job.context_id,
         image_revision: job.image_revision, error: 'replay_failure', message: 'Replay answer unavailable.' };
     }
-    if (audit.cancels.some(item => item.context_id === job.context_id)) {
+    if (audit.cancels.some(item => item.context_id === job.context_id && (!item.turn_id || item.turn_id === job.turn_id))) {
       return { turn_id: job.turn_id, status: 'cancelled', context_id: job.context_id,
         image_revision: job.image_revision };
     }
     return { turn_id: job.turn_id, status: 'completed', context_id: job.context_id,
-      image_revision: job.image_revision, answer: {
+      image_revision: job.image_revision,
+      ...(job.question.includes('remember circuit') || circuitModels.has(job.context_id)
+        ? { circuit_model: circuitFor(job) } : {}), answer: {
         explanation: `Replay explanation for ${job.question}`,
         observations: ['A colored practice image is visible.'], questions: [],
         next_steps: ['Inspect the marked area.'],
-        annotations: [{ image_id: job.image_ids[0], x: .5, y: .5, label: 'Replay marker' }],
+        annotations: job.question.includes('crowded labels') ? Array.from({ length: 8 }, (_, index) => ({
+          image_id: job.image_ids[0], x: index < 6 ? .48 + index * .004 : index === 6 ? .01 : .99,
+          y: index < 6 ? .5 + index * .002 : index === 6 ? .01 : .99,
+          label: `R${index + 1}: Long component label with an uncertain terminal connection that must stay readable`,
+        })) : [{ image_id: job.image_ids[0], x: .5, y: .5, label: 'Replay marker' }],
         limitations: ['This answer is an offline test fixture.'],
       } };
   }
   if (action === 'photoCancel') {
     audit.cancels.push({ context_id: payload.context_id, turn_id: payload.turn_id ?? null });
+    if (!payload.turn_id) circuitModels.delete(payload.context_id);
     return { status: 'cancelled', context_id: payload.context_id };
   }
   if (action === 'testAudit') return { ...audit, latePending: Boolean(resolveLateAsk),

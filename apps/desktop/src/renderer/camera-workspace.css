@@ -15,11 +15,12 @@
 .camera-workspace-title { display: flex; align-items: center; gap: 16px; min-width: 0; }
 .camera-workspace-exit { flex-shrink: 0; }
 .camera-workspace-head-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
+.camera-workspace-head-actions .topbar-session-picker { width: auto; margin-top: 0; }
 .camera-workspace-head h2 { margin: 5px 0 4px; color: #edf8f2; font-size: clamp(18px, 2vw, 25px); font-weight: 600; letter-spacing: -.035em; }
 .camera-workspace-head p { margin: 0; color: #8aa6a8; font-size: 12px; }
 .camera-workspace-kicker { color: #77d9bd; font: 9px var(--mono, monospace); letter-spacing: .15em; }
-.camera-workspace-power { display: flex; gap: 6px; }
-.camera-workspace-power button { min-height: 34px; padding: 8px 11px; border: 1px solid transparent; border-radius: 6px; color: #f8fff9; cursor: pointer; font: 600 11px/1.2 inherit; white-space: nowrap; }
+.camera-workspace-power { display: flex; flex-wrap: wrap; gap: 6px; }
+.camera-workspace-power button { flex: 1 1 150px; min-width: 0; min-height: 34px; padding: 8px 11px; border: 1px solid transparent; border-radius: 6px; color: #f8fff9; cursor: pointer; font-family: inherit; font-size: 11px; font-weight: 600; line-height: 1.2; white-space: normal; }
 .camera-workspace-power .is-turn-on { border-color: #55a971; background: #2e7547; }
 .camera-workspace-power .is-turn-on:hover:not(:disabled) { background: #398d58; }
 .camera-workspace-power .is-turn-off { border-color: #bd6d62; background: #93483f; }
@@ -33,6 +34,19 @@
 .camera-workspace-stage-overview, .camera-workspace-stage-pi { grid-template-columns: minmax(0, 1fr); }
 .camera-workspace-stage-both { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .camera-workspace-stage-overview .camera-workspace-pi, .camera-workspace-stage-pi .camera-workspace-overview { display: none; }
+.camera-controls-menu { display: flex; flex-direction: column; gap: 8px; padding: 10px; border: 1px solid #2d4b4e; border-radius: 8px; background: #0c2022; }
+.camera-controls-actions { display: flex; align-items: stretch; flex-wrap: wrap; gap: 8px; padding-bottom: 2px; }
+.camera-controls-actions > * { min-width: 0; }
+.camera-controls-actions .camera-workspace-power { flex: 1 1 225px; }
+.camera-view-segmented { display: flex; flex: 1 1 230px; min-width: 0; padding: 3px; border: 1px solid #52726f; border-radius: 7px; background: #0a1a20; }
+.camera-view-option { min-width: 0; flex: 1 1 0; padding: 8px 10px; border: 0; border-radius: 4px; background: transparent; color: #78958b; cursor: pointer; font: inherit; font-size: 11px; white-space: normal; }
+.camera-view-option[aria-pressed="true"] { background: #28534d; color: #e0f3e8; box-shadow: inset 0 0 0 1px #75c5a5; }
+.camera-view-option:hover:not(:disabled) { color: #e0f3e8; background: #173b39; }
+.camera-view-option:focus-visible { outline: 2px solid #9de5bc; outline-offset: 2px; }
+.camera-view-option:disabled { cursor: default; opacity: .48; }
+.camera-workspace-power button, .camera-view-segmented, .camera-controls-actions > .camera-workspace-focus-button, .camera-controls-actions > .camera-workspace-subtitles-button { flex: 1 1 145px; }
+.camera-controls-actions > .camera-workspace-focus-button, .camera-controls-actions > .camera-workspace-subtitles-button { white-space: normal; }
+.camera-controls-status { color: #d7c28e; font-size: 10px; }
 .camera-workspace-feed { position: relative; overflow: hidden; min-width: 0; min-height: 0; border: 1px solid #365257; border-radius: 9px; background: radial-gradient(circle at 50% 45%, #193237, #0a151c 73%); }
 .camera-workspace-aligned { position: absolute; inset: 0; transform-origin: center; transition: transform 300ms ease-out; }
 .camera-workspace-feed .camera-framing video, .camera-workspace-feed .camera-framing img { position: absolute; inset: 0; display: block; width: 100%; height: 100%; object-fit: contain; background: #071116; }
@@ -99,6 +113,7 @@
 @media (max-width: 900px) {
   .camera-workspace-head { align-items: start; flex-direction: column; }
   .camera-workspace.is-focused .camera-workspace-head { align-items: start; }
+  .camera-controls-actions { flex-wrap: wrap; }
   .camera-workspace-stage-both { height: clamp(520px, 70vh, 720px); grid-template-columns: minmax(0, 1fr); grid-template-rows: repeat(2, minmax(0, 1fr)); }
   .camera-workspace-stage-both .camera-workspace-feed { min-height: 0; }
   .camera-workspace.is-focused .camera-workspace-stage-both .camera-workspace-feed { min-height: 0; }
@@ -111,6 +126,9 @@
   .camera-workspace.is-focused .camera-workspace-focus-caption { bottom: 12px; font-size: 13px; }
   .camera-workspace.is-focused .camera-workspace-focus-guide .frieren-guide { width: 88px; height: 122px; }
   .camera-workspace-stage { min-height: 300px; }
+  .camera-controls-actions { align-items: stretch; flex-direction: column; }
+  .camera-controls-actions > * { width: 100%; }
+  .camera-view-segmented { min-width: 0; }
   .camera-workspace-setup-grid { grid-template-columns: 1fr; }
   .camera-workspace-setup summary span { display: none; }
 }

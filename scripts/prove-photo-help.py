@@ -1,7 +1,7 @@
 """Explicitly opted-in image route proof; never part of automatic verification.
 
-Sends only a generated blank PNG through the signed-in subscription route. This
-proves transport/validation, not real circuit diagnosis or physical inspection.
+Defaults to a generated blank PNG. An explicitly supplied image exercises the
+real reconstruction and simulator route, never physical electrical verification.
 """
 import argparse
 import base64
@@ -29,9 +29,14 @@ def blank_image():
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--authorized-live-proof", action="store_true")
+    parser.add_argument("--image", type=Path)
+    parser.add_argument("--question", default="What can you actually see in this uploaded image? Explain whether there is enough visual information to help with a circuit. Do not assume a practice circuit or any physical measurements.")
+    parser.add_argument("--output", type=Path, default=Path("runtime/photo-help-live-proof.json"))
     args = parser.parse_args()
     if not args.authorized_live_proof:
         parser.error("This consumes subscription allowance; explicit --authorized-live-proof is required.")
+    raw = args.image.read_bytes() if args.image else blank_image()
+    mime_type = "image/jpeg" if raw.startswith(b"\xff\xd8") else "image/png"
     started = time.monotonic()
     with tempfile.TemporaryDirectory(prefix="ohmpath-photo-proof-") as directory:
         token = secrets.token_hex(32)
@@ -40,9 +45,9 @@ def main():
             context_id = str(uuid4())
             response = client.post("/v1/photo-help/investigate", json={
                 "context_id": context_id,
-                "question": "What can you actually see in this uploaded image? Explain whether there is enough visual information to help with a circuit. Do not assume a practice circuit or any physical measurements.",
-                "images": [{"image_id": str(uuid4()), "mime_type": "image/png",
-                            "image_base64": base64.b64encode(blank_image()).decode()}],
+                "question": args.question,
+                "images": [{"image_id": str(uuid4()), "mime_type": mime_type,
+                            "image_base64": base64.b64encode(raw).decode()}],
             })
             response.raise_for_status()
             result = response.json()
@@ -53,12 +58,14 @@ def main():
                 result = status.json()
             client.post("/v1/photo-help/cancel", json={"context_id": context_id})
             report = {"status": result.get("status"), "seconds": round(time.monotonic() - started, 2),
-                      "fixture": "generated blank white PNG", "physical_verification": False,
+                      "fixture": args.image.name if args.image else "generated blank white PNG", "physical_verification": False,
                       "audio_generated": False, "result": result}
-            output = Path("runtime/photo-help-live-proof.json")
-            output.parent.mkdir(exist_ok=True)
+            output = args.output
+            output.parent.mkdir(parents=True, exist_ok=True)
             output.write_text(json.dumps(report, indent=2), encoding="utf-8")
-            print(json.dumps(report))
+            print(json.dumps({key: value for key, value in report.items() if key != "result"}
+                             | {"error": result.get("error"), "private_report": str(output),
+                                "circuit_model_saved": bool(result.get("circuit_model"))}))
             return 0 if result.get("status") == "completed" else 1
 
 

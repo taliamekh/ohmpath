@@ -5,6 +5,7 @@ from decimal import Decimal
 import pytest
 
 from ohmpath.voice.parsing import parse_reading, route_utterance
+from ohmpath.voice import transcription as transcription_module
 from ohmpath.voice.transcription import WhisperWorker
 
 
@@ -53,3 +54,47 @@ def test_silence_does_not_start_speech_worker():
     worker = WhisperWorker()
     assert worker.transcribe(buffer.getvalue())["status"] == "silence"
     assert worker.process is None
+
+
+@pytest.mark.parametrize(("worker_text", "expected_status"), [
+    ("   ", "empty"), ("[BLANK_AUDIO]", "silence"), (" [blank_audio]. ", "silence"),
+    ("[BLANK_AUDIO] [BLANK_AUDIO]", "silence"), ("[NO_SPEECH]", "silence"),
+    ("(silence)", "silence"), ("[silence]", "silence"),
+])
+def test_empty_worker_response_is_not_marked_final(monkeypatch, worker_text, expected_status):
+    buffer = io.BytesIO()
+    with wave.open(buffer, "wb") as wav:
+        wav.setnchannels(1)
+        wav.setsampwidth(2)
+        wav.setframerate(16000)
+        wav.writeframes(b"\x00\x01" * 16000)
+
+    class Response:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"text": worker_text}
+
+    class Client:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def post(self, *args, **kwargs):
+            return Response()
+
+    monkeypatch.setattr(transcription_module.httpx, "Client", Client)
+    worker = WhisperWorker()
+    monkeypatch.setattr(worker, "start", lambda: setattr(worker, "url", "http://127.0.0.1/mock"))
+
+    result = worker.transcribe(buffer.getvalue())
+
+    assert result["text"] == ""
+    assert result["status"] == expected_status
+    assert result["local_only"] is True

@@ -9,6 +9,7 @@ async function voiceRequest(action: string, payload: Record<string, unknown> = {
 /** Presentation only: speech never submits a question or confirms a measurement. */
 export default function useElevenLabsSpeech(onState: (speaking: boolean) => void, onError: (message: string) => void) {
   const [available, setAvailable] = useState(false);
+  const availableNow = useRef(false);
   const [pending, setPending] = useState(false);
   const callbacks = useRef({ onState, onError });
   callbacks.current = { onState, onError };
@@ -19,10 +20,22 @@ export default function useElevenLabsSpeech(onState: (speaking: boolean) => void
   const refresh = useCallback(async () => {
     try {
       const status = await voiceRequest("elevenLabsStatus");
-      if (mounted.current) setAvailable(status.connected === true && status.generation_enabled === true
+      const ready = status.connected === true && status.generation_enabled === true
         && Boolean(status.selected_voice_id) && status.spending_blocked === false
-        && status.provider_remaining_credits > 0 && status.remaining_session_characters > 0 && status.remaining_session_credits > 0);
-    } catch { if (mounted.current) setAvailable(false); }
+        && status.provider_remaining_credits > 0 && status.remaining_session_characters > 0 && status.remaining_session_credits > 0;
+      if (mounted.current) { availableNow.current = ready; setAvailable(ready); }
+      const reason = !status.connected ? 'The ElevenLabs account is not linked in this app. Open Voice setup and link it.'
+        : !status.selected_voice_id ? 'No voice is selected. Open Voice setup and choose your voice.'
+        : status.spending_blocked !== false ? 'Voice is blocked by the account spending settings. Check Voice setup; no paid fallback was enabled.'
+        : !status.generation_enabled ? 'Spoken answers are off for this launch.'
+        : !(status.provider_remaining_credits > 0) ? 'ElevenLabs account credits are unavailable or exhausted. Refresh account information in Voice setup.'
+        : !(status.remaining_session_characters > 0 && status.remaining_session_credits > 0) ? 'The voice allowance for this launch is used up. No additional credits were authorized.'
+        : '';
+      return { available: ready, reason };
+    } catch {
+      if (mounted.current) { availableNow.current = false; setAvailable(false); }
+      return { available: false, reason: 'The app could not read its voice connection. Close and reopen Ohm Path.' };
+    }
   }, []);
 
   const stop = useCallback(() => {
@@ -72,7 +85,7 @@ export default function useElevenLabsSpeech(onState: (speaking: boolean) => void
 
   const speak = useCallback((text: string, onComplete?: () => void) => {
     stop();
-    if (!available) { callbacks.current.onError("Enable ElevenLabs spoken answers in Settings first."); return; }
+    if (!availableNow.current) { callbacks.current.onError("Enable ElevenLabs spoken answers in Settings first."); return; }
     if (!text.trim() || text.length > 1000) {
       callbacks.current.onError("This answer exceeds the 1,000-character speech limit. Read the full answer on screen.");
       return;
@@ -80,13 +93,17 @@ export default function useElevenLabsSpeech(onState: (speaking: boolean) => void
     const id = crypto.randomUUID();
     current.current = { id, streamEnded: false, onComplete };
     setPending(true);
-    try { player.current!.arm(id); }
+    let ready: Promise<void>;
+    try { ready = player.current!.arm(id); }
     catch { stop(); callbacks.current.onError("Audio output could not be opened."); return; }
-    void voiceRequest("elevenLabsSpeak", { request_id: id, text }).catch(() => {
+    void ready.then(() => {
       if (current.current?.id !== id || !mounted.current) return;
-      stop();
-      callbacks.current.onError("Speech was blocked or unavailable. Check the voice allowance in Settings; captions remain available.");
-    }).finally(() => { void refresh(); });
+      return voiceRequest("elevenLabsSpeak", { request_id: id, text }).catch(() => {
+        if (current.current?.id !== id || !mounted.current) return;
+        stop();
+        callbacks.current.onError("Speech was blocked or unavailable. Check the voice allowance in Settings; captions remain available.");
+      }).finally(() => { void refresh(); });
+    }).catch(() => undefined); // The player's error callback reports the unlock failure.
   }, [available, refresh, stop]);
 
   const prepare = useCallback(() => {

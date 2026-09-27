@@ -134,6 +134,8 @@ Shared explanation wording may be calm, reserved and lightly humorous. This pres
 
 ## Optional phone photo and speech presentation interfaces
 
+`GET /v1/voice/status` may include a read-only `installation` object with resolved `executable` and `model` paths plus `executable_exists` and `model_exists` flags. It remains local-user-only, contains no tokens/audio, and grants no path override or execution authority. Settings exposes these diagnostics only in a collapsed failure detail. File presence means installed; it does not prove microphone capture or successful transcription.
+
 Phone photo transfer is an opt-in helper separate from the loopback bench API. `phonePhotoStart({address})` binds only an explicitly selected private IPv4 adapter. The link expires after 15 minutes and carries a random bearer capability in its URL fragment. Only the phone's explicit Send transmits the bounded photo/question to the laptop. Main-process decoding removes original metadata and gives the renderer an owned image ID; the laptop's explicit Ask remains necessary for reasoning. The helper offers no bench, microphone, speech, or hardware control. Trusted-network HTTP is unencrypted and the UI discloses this limitation. See [transport limits](../development/phone-photos.md).
 
 `phonePhotoStatus` returns `{active,url,expires_at,address,received_count,qr_data_url,pending,interfaces}` to the trusted main renderer only. `phonePhotoSetAccepting({accepting})` gates incoming images by workspace readiness. `phonePhotoTake` consumes one pending `{image,question}`; late results must be released after navigation or capacity changes. `phonePhotoStop` invalidates the token, closes sockets and releases a pending image. Quit and renderer failure also close sharing.
@@ -206,7 +208,24 @@ Calibration reports `sampling_method`, `pixel_scale`, pixel fit/validation error
 
 Stationary diagnosis preserves an already valid local movement calibration: interpreting a new image does not itself alter camera geometry. A target gets fresh tracking, and the existing locality/response checks still apply. Survey moves explicitly invalidate that fit because they reposition without a tracked response.
 
-## Direct phone live camera
+## Photo circuit reconstruction and conditional simulation
+
+Photo help has a separately bounded reconstruction authority. A completed photo job may return `circuit_model: {draft, simulation}` in addition to its existing answer. The draft is proposed circuit context, never an accepted bench graph or confirmed wiring/measurement. The local service generates `image_revision`, `draft_revision` and `graph_sha256`; model-supplied versions cannot authorize an action.
+
+The draft records `intended_function`, `components`, `ground_node`, `ground_source`, `assumptions`, `uncertainties`, `unsupported`, `questions` and `simulation_ready`. Each component has `ref`, `kind`, two `nodes` slots (nullable for unknown connections), nullable `value_si`, and independent `source`, `value_source` and `connection_source` labels. Source labels are `image_visible`, `user_reported`, `assumed` or `unknown`; they are model-attributed context, not independently verified provenance or confidence scores. Unsupported component descriptions are retained and block compilation rather than being omitted.
+
+The model sees only bounded `remember_circuit`, `simulate_circuit` and optional `inspect_photo_region` dynamic tools. Remember validates a candidate and merges it by component reference: a close-up cannot silently drop previously recorded parts. Resolved uncertainty/unsupported entries must be named explicitly. Simulation resolves only the current context/image/draft revision and compiles supported resistor/DC-source graphs through the existing constrained netlist generator. Neither accepts executable SPICE text, shell commands, device actions or confirmation authority. Missing values, connections, reference node or unsupported parts produce named questions. Results are conditional predictions and preserve actual `ngspice_actual` versus `none` provenance, graph hash, simulator result/failure, node voltages and simulation identity where a process ran.
+
+Inspection resolves only registered images from the current frozen request. It returns a bounded crop, source-coordinate transform and conservative image-quality hints. It cannot capture new frames or confirm electrical details. Output is at most two crop images per turn, with no enlargement or colour enhancement. Final annotations remain in original-image coordinates.
+
+Changing images within the same circuit retains a compact draft but invalidates prior pixel geometry and simulation readiness. A new circuit/Clear removes its context. Pending turn cancellation must not erase an unrelated completed draft; late completions remain tied to request generation and image revision. Persisted draft data lives in private application data, contains no raw media, and must not restore physical authorization or a previously valid image mapping.
+
+Saved photo circuits use the canonical `PhotoCircuitModel` schema and generated Python/TypeScript bindings. User-only `GET /v1/photo-help/contexts/{context_id}` and renderer IPC `photoCircuitStatus` return `{circuit_model: model|null}` without a model call. The local store is bounded to 32 contexts; restoration validates saved data and revokes simulation readiness/results. Renderer storage contains only the context UUID, never photos or recordings. First intent plus two recent exchanges retain ordered tests and unconfirmed user reports during the service session; those exchanges are not a persisted measurement ledger.
+
+
+Prepared photo-workspace playback has no model request and never writes example values into the measurement ledger. Its sample values are labelled simulated rehearsal data. Existing opted-in speech output is reused; an explicit Play in the Live-help walkthrough can enable the existing selected voice within the existing launch cap, but never silently substitutes a provider.
+
+## Direct phone live camera protocol
 
 `phoneLiveStart({request_id,offer:{type:'offer',sdp}})` is trusted main-renderer IPC only. The canonical UUID identifies a cancellable setup request. An isolated loopback signaling bridge starts a temporary HTTPS Quick Tunnel; the desktop checks public-page reachability before returning a QR code. `phoneLiveCancelStart({request_id})` aborts only the matching pending setup. `phoneLiveStatus({session_id?})` returns `{active,session_id,state,url,answer,error,expires_at,qr_data_url?}` and refreshes the matching renderer lease. `phoneLiveStop({session_id})` cannot stop a replacement session through a stale identifier.
 

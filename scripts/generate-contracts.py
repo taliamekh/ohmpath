@@ -12,6 +12,8 @@ SCHEMA = json.loads((ROOT / "packages/contracts/schema.json").read_text())
 
 
 def render_type(spec, language):
+    if "anyOf" in spec:
+        return " | ".join(render_type(item, language) for item in spec["anyOf"])
     if "$ref" in spec:
         return spec["$ref"].rsplit("/", 1)[-1]
     if "const" in spec or "enum" in spec:
@@ -25,6 +27,9 @@ def render_type(spec, language):
     if kind == "array":
         inner = render_type(spec["items"], language)
         return f"list[{inner}]" if language == "py" else f"Array<{inner}>"
+    if kind == "object" and isinstance(spec.get("additionalProperties"), dict):
+        inner = render_type(spec["additionalProperties"], language)
+        return f"dict[str, {inner}]" if language == "py" else f"Record<string, {inner}>"
     names = {"string": ("str", "string"), "number": ("float", "number"),
              "integer": ("int", "number"), "boolean": ("bool", "boolean"),
              "null": ("None", "null"), "object": ("dict[str, Any]", "Record<string, unknown>")}

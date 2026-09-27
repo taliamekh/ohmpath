@@ -5,6 +5,57 @@ from pydantic import BaseModel, ConfigDict
 class Contract(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
 
+class PhotoCircuitComponent(Contract):
+    ref: str
+    kind: str
+    nodes: list[str | None]
+    value_si: float | None
+    source: Literal['image_visible', 'user_reported', 'assumed', 'unknown']
+    value_source: Literal['image_visible', 'user_reported', 'assumed', 'unknown']
+    connection_source: Literal['image_visible', 'user_reported', 'assumed', 'unknown']
+
+
+class PhotoCircuitQuestion(Contract):
+    target: str
+    issue: str
+    request: str
+
+
+class PhotoCircuitDraft(Contract):
+    context_id: str
+    image_revision: str
+    draft_revision: str
+    graph_sha256: str | None
+    intended_function: str | None
+    components: list[PhotoCircuitComponent]
+    ground_node: str | None
+    ground_source: Literal['image_visible', 'user_reported', 'assumed', 'unknown']
+    assumptions: list[str]
+    uncertainties: list[str]
+    unsupported: list[str]
+    questions: list[PhotoCircuitQuestion]
+    simulation_ready: bool
+    retained_refs: list[str]
+    prior_image_revision: str | None = None
+
+
+class PhotoCircuitSimulation(Contract):
+    status: Literal['blocked', 'succeeded', 'failed', 'cancelled', 'timed_out']
+    draft_revision: str
+    graph_sha256: str | None
+    provenance: Literal['ngspice_actual', 'none']
+    node_voltages_v: dict[str, float]
+    reason: str | None
+    conditional: Literal[True]
+    simulation_id: str | None = None
+    simulator_sha256: str | None | None = None
+
+
+class PhotoCircuitModel(Contract):
+    draft: PhotoCircuitDraft
+    simulation: PhotoCircuitSimulation | None
+
+
 class Revisions(Contract):
     circuit_revision: str | None
     firmware_revision: str | None

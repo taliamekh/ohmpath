@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 type Phase = "idle" | "requesting" | "recording" | "ready" | "transcribing";
 type Capture = {
@@ -25,6 +25,21 @@ export type SpokenQuestionProps = {
 const MAX_SECONDS = 20;
 const WAV_RATE = 16000;
 const MAX_WAV_BYTES = 1_500_000;
+const MICROPHONE_KEY = "ohmpath.microphoneDeviceId";
+
+function savedMicrophone() {
+  try { return localStorage.getItem(MICROPHONE_KEY) || ""; } catch { return ""; }
+}
+
+async function speechStatus() {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      request<{ status?: string; local_only?: boolean }>("voiceStatus"),
+      new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error("Speech status check timed out. Try again.")), 8000); }),
+    ]);
+  } finally { clearTimeout(timer); }
+}
 
 async function request<T>(action: string, payload: Record<string, unknown> = {}): Promise<T> {
   if (!window.ohmpath?.request) throw new Error("unavailable");
@@ -75,14 +90,40 @@ function wavBase64(recorded: Recorded): string {
 export default function SpokenQuestion({ active, disabled = false, onText, onRecording, onBeforeCapture, askOnFinish = false }: SpokenQuestionProps) {
   const [phase, setPhase] = useState<Phase>("idle");
   const [available, setAvailable] = useState(false);
+  const [checkingStatus, setCheckingStatus] = useState(true);
   const [notice, setNotice] = useState("Checking local speech…");
+  const [microphones, setMicrophones] = useState<MediaDeviceInfo[]>([]);
+  const [microphoneId, setMicrophoneId] = useState(savedMicrophone);
+  const [microphoneLabel, setMicrophoneLabel] = useState("");
   const captureRef = useRef<Capture | null>(null);
   const recordedRef = useRef<Recorded | null>(null);
   const generationRef = useRef(0);
+  const statusGenerationRef = useRef(0);
   const microphoneOwnerRef = useRef<number | null>(null);
   const mountedRef = useRef(false);
   const currentRef = useRef({ active, disabled, onText, onRecording, onBeforeCapture });
   currentRef.current = { active, disabled, onText, onRecording, onBeforeCapture };
+
+  const checkSpeechStatus = useCallback(async () => {
+    const generation = ++statusGenerationRef.current;
+    setCheckingStatus(true);
+    setNotice("Checking local speech…");
+    try {
+      const status = await speechStatus();
+      if (generation !== statusGenerationRef.current) return;
+      const ready = status?.local_only === true && ["installed", "ready"].includes(status.status ?? "");
+      setAvailable(ready);
+      setNotice(ready ? "Local speech ready. Microphone off."
+        : status?.status === "not_installed" ? "Local speech files were not found. Check speech setup in Settings."
+          : `Local speech is unavailable (${status?.status || "unknown status"}). Check Settings or retry.`);
+    } catch (error) {
+      if (generation !== statusGenerationRef.current) return;
+      setAvailable(false);
+      setNotice(error instanceof Error && error.message.includes("timed out") ? error.message : "Could not check local speech status. Check Settings or retry.");
+    } finally {
+      if (generation === statusGenerationRef.current) setCheckingStatus(false);
+    }
+  }, []);
 
   function releaseCapture(retain: boolean): Recorded | null {
     const capture = captureRef.current;
@@ -123,20 +164,15 @@ export default function SpokenQuestion({ active, disabled = false, onText, onRec
 
   useEffect(() => {
     if (!active || disabled) {
+      statusGenerationRef.current += 1;
+      setCheckingStatus(false);
       cancelCapture();
       return;
     }
-    let live = true;
-    void request<{ status?: string; local_only?: boolean }>("voiceStatus").then(status => {
-      if (!live || !mountedRef.current) return;
-      const ready = status?.local_only === true && ["installed", "ready"].includes(status.status ?? "");
-      setAvailable(ready);
-      setNotice(ready ? "Local speech ready. Microphone off." : "Local speech setup needed.");
-    }).catch(() => {
-      if (live && mountedRef.current) { setAvailable(false); setNotice("Local speech setup needed."); }
-    });
-    return () => { live = false; };
-  }, [active, disabled]);
+    setMicrophoneId(savedMicrophone());
+    void checkSpeechStatus();
+    return () => { statusGenerationRef.current += 1; };
+  }, [active, disabled, checkSpeechStatus]);
 
   async function start() {
     if (phase !== "idle" || !active || disabled || !available) return;
@@ -148,7 +184,7 @@ export default function SpokenQuestion({ active, disabled = false, onText, onRec
     let context: AudioContext | null = null;
     let keepMicrophone = false;
     try {
-      const status = await request<{ status?: string; local_only?: boolean }>("voiceStatus");
+      const status = await speechStatus();
       if (status?.local_only !== true || !["ready", "installed"].includes(status.status ?? ""))
         throw new Error("local_speech_unavailable");
       if (generation !== generationRef.current || !currentRef.current.active || currentRef.current.disabled) return;
@@ -158,9 +194,17 @@ export default function SpokenQuestion({ active, disabled = false, onText, onRec
       if (generation !== generationRef.current || !currentRef.current.active || currentRef.current.disabled) return;
       if (!navigator.mediaDevices?.getUserMedia) throw new Error("microphone_unavailable");
       stream = await navigator.mediaDevices.getUserMedia({
-        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }, video: false,
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true,
+          ...(microphoneId ? { deviceId: { exact: microphoneId } } : {}) }, video: false,
       });
       if (generation !== generationRef.current || !currentRef.current.active || currentRef.current.disabled) return;
+      setMicrophoneLabel(stream.getAudioTracks()[0]?.label || "System default microphone");
+      // Device labels are requested only after explicit capture permission.
+      void navigator.mediaDevices.enumerateDevices?.().then(devices => {
+        if (generation === generationRef.current && mountedRef.current)
+          setMicrophones(devices.filter(device => device.kind === "audioinput" && device.deviceId
+            && !["default", "communications"].includes(device.deviceId)));
+      }).catch(() => undefined);
       context = new window.AudioContext({ sampleRate: WAV_RATE });
       await context.resume();
       if (generation !== generationRef.current || !currentRef.current.active || currentRef.current.disabled) return;
@@ -193,10 +237,12 @@ export default function SpokenQuestion({ active, disabled = false, onText, onRec
       setPhase("recording");
       setNotice("Microphone on. Finish to transcribe; cancel to discard.");
       currentRef.current.onRecording?.(true);
-    } catch {
+    } catch (error) {
       if (generation === generationRef.current && mountedRef.current) {
         setPhase("idle");
-        setNotice("Microphone or local speech is unavailable. Check setup and permission.");
+        setNotice(error instanceof Error && ["NotFoundError", "OverconstrainedError"].includes(error.name)
+          ? "The selected microphone is unavailable. Reconnect it or select System default microphone."
+          : "Microphone or local speech is unavailable. Check setup and permission.");
       }
     } finally {
       stream?.getTracks().forEach(track => track.stop());
@@ -223,9 +269,10 @@ export default function SpokenQuestion({ active, disabled = false, onText, onRec
       recorded.chunks.length = 0;
       const result = await request<{ text?: string; status?: string; local_only?: boolean }>("photoTranscribe", { wav_base64 });
       if (generation !== generationRef.current || !mountedRef.current || !currentRef.current.active || currentRef.current.disabled) return;
-      if (result?.local_only !== true || result.status !== "final" || typeof result.text !== "string"
+      const nonSpeech = typeof result.text === "string" && /^(?:\s*(?:\[blank_audio\]|\[no_speech\]|\[silence\]|\(silence\))\s*[.!]?\s*)+$/i.test(result.text);
+      if (result?.local_only !== true || result.status !== "final" || nonSpeech || typeof result.text !== "string"
           || !result.text.trim() || result.text.length > 4000) {
-        setNotice("No clear words were heard. Try again or type your question.");
+        setNotice(result.status === "silence" || nonSpeech ? "No speech detected. Try again." : "No clear words were heard. Try again or type your question.");
       } else {
         currentRef.current.onText(result.text.trim());
         setNotice(askOnFinish ? "Question captured. Opening Photo help for your review…" : "Added to your draft. Review it before asking.");
@@ -239,17 +286,35 @@ export default function SpokenQuestion({ active, disabled = false, onText, onRec
     }
   }
 
+  const compactNotice = notice === "Local speech ready. Microphone off." || notice === "Recording cancelled. Nothing was sent."
+    ? "Mic off" : notice.startsWith("Question captured.") ? "Saved to draft" : notice;
+
   return <div className="spoken-question" aria-label="Spoken question" style={{ marginTop: 10 }}>
+    {(microphones.length > 0 || microphoneId || microphoneLabel) && <details style={{ marginBottom: 8 }}>
+      <summary>Microphone</summary>
+      <label style={{ display: "block", marginBottom: 8 }}>Microphone source
+      <select style={{ maxWidth: "100%", width: "100%" }} value={microphoneId} disabled={phase !== "idle"} onChange={event => {
+        setMicrophoneId(event.target.value);
+        try { localStorage.setItem(MICROPHONE_KEY, event.target.value); } catch { /* Session-only selection. */ }
+      }}>
+        <option value="">System default microphone</option>
+        {microphoneId && !microphones.some(device => device.deviceId === microphoneId) && <option value={microphoneId}>Saved microphone (reconnect if unavailable)</option>}
+        {microphones.map((device, index) => <option key={device.deviceId} value={device.deviceId}>{device.label || `Microphone ${index + 1}`}</option>)}
+      </select>
+    </label>
+    {microphoneLabel && <small style={{ display: "block" }}>Last opened input: {microphoneLabel}</small>}
+    </details>}
     <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
       {phase === "idle" && <button type="button" className="button secondary" disabled={!active || disabled || !available}
-        onClick={() => void start()}>{askOnFinish ? "Talk to helper" : "Start recording"}</button>}
+        onClick={() => void start()}>{askOnFinish ? "Push to talk" : "Start recording"}</button>}
+      {phase === "idle" && active && !disabled && !available && <button type="button" className="button secondary"
+        disabled={checkingStatus} onClick={() => void checkSpeechStatus()}>{checkingStatus ? "Checking speech…" : "Retry speech check"}</button>}
       {phase === "requesting" && <button type="button" className="button secondary" disabled>Opening microphone…</button>}
       {(phase === "recording" || phase === "ready") && <button type="button" className="button primary"
-        onClick={() => void finish()}>{askOnFinish ? "Finish and open Photo help" : "Finish recording"}</button>}
+        onClick={() => void finish()}>{askOnFinish ? phase === "recording" ? "Mic on · Finish" : "Finish" : "Finish recording"}</button>}
       {phase === "transcribing" && <button type="button" className="button secondary" disabled>Transcribing…</button>}
       {phase !== "idle" && <button type="button" className="button secondary" onClick={cancelCapture}>Cancel recording</button>}
     </div>
-    <small role="status" aria-live="polite" style={{ display: "block", marginTop: 6 }}>{notice}</small>
-    {askOnFinish && <small>Finish and open Photo help to review your question with the current camera view before sending it.</small>}
+    {(!askOnFinish || phase === "idle" || phase === "ready") && <small role="status" aria-live="polite" style={{ display: "block", marginTop: 6 }}>{askOnFinish ? phase === "ready" ? "Recording stopped" : compactNotice : notice}</small>}
   </div>;
 }

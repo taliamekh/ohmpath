@@ -15,6 +15,8 @@ const { createPhoneLiveTunnel } = require('./phone-live-tunnel.cjs');
 const { phoneLivePage } = require('./phone-live-page.cjs');
 const { waitForPhoneLivePage } = require('./phone-live-ready.cjs');
 const { createQuitGate } = require('./quit-gate.cjs');
+const { speechInstallationEnvironment } = require('./speech-installation.cjs');
+const { recoverVoiceStore } = require('./voice-store-recovery.cjs');
 const QRCode = require('qrcode');
 const piVideo = new PiVideoClient();
 const photoImages = createPhotoImages(nativeImage);
@@ -35,6 +37,7 @@ let stopping = false;
 let microphoneAllowed = false;
 let cameraAllowed = false;
 let elevenLabs;
+let voiceRecovery;
 let turretPreference;
 let phonePhotos;
 let phoneLive;
@@ -92,12 +95,13 @@ async function startBench() {
   if (!fs.existsSync(python)) throw new Error('Run the development setup first; the local Python environment is missing.');
   userToken = randomBytes(32).toString('hex');
   const safeEnv = {};
-  for (const key of ['PATH', 'Path', 'SystemRoot', 'WINDIR', 'PROGRAMDATA', 'TEMP', 'TMP', 'LOCALAPPDATA', 'USERPROFILE', 'HOME']) {
+  for (const key of ['PATH', 'Path', 'SystemRoot', 'WINDIR', 'PROGRAMDATA', 'TEMP', 'TMP', 'LOCALAPPDATA', 'USERPROFILE', 'HOME', 'OHMPATH_WHISPER', 'OHMPATH_SPEECH_MODEL']) {
     if (process.env[key]) safeEnv[key] = process.env[key];
   }
   safeEnv.OHMPATH_USER_TOKEN = userToken;
   safeEnv.OHMPATH_MODEL_TOKEN = randomBytes(32).toString('hex');
   safeEnv.PYTHONUNBUFFERED = '1';
+  Object.assign(safeEnv, speechInstallationEnvironment(safeEnv, root));
   child = spawn(python, ['-m', 'ohmpath', '--port', '0', '--parent-stdin', '--data-dir', process.env.OHMPATH_DATA_DIR || join(app.getPath('userData'), 'bench')], {
     cwd: root, env: safeEnv, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'],
   });
@@ -304,6 +308,10 @@ ipcMain.handle('ohmpath:request', async (event, action, payload) => {
     return callBench('/v1/photo-help/investigate', 'POST', { context_id: payload.context_id,
       question: payload.question, images: photoImages.selected(payload.image_ids) });
   }
+  if (action === 'photoCircuitStatus') {
+    if (!UUID.test(payload.context_id)) throw new Error('Invalid saved circuit ID.');
+    return callBench(`/v1/photo-help/contexts/${payload.context_id}`, 'GET');
+  }
   if (action === 'photoStatus') {
     if (!UUID.test(payload.turn_id)) throw new Error('Invalid photo question ID.');
     return callBench(`/v1/photo-help/${payload.turn_id}`, 'GET');
@@ -319,6 +327,14 @@ ipcMain.handle('ohmpath:request', async (event, action, payload) => {
   };
   if (Object.hasOwn(voiceConnectionActions, action)) {
     if (!elevenLabs) throw new Error('The private voice connection is not ready.');
+    if (action === 'elevenLabsSetGenerationEnabled' && payload.enabled === true && !process.env.OHMPATH_DATA_DIR) {
+      const status = await elevenLabs.handle('status', {});
+      if (!status.connected) {
+        voiceRecovery ||= recoverVoiceStore({ safeStorage, targetDirectory: app.getPath('userData'),
+          sourceDirectory: join(app.getPath('home'), 'AppData/Local/Packages/OpenAI.Codex_2p2nqsd0c76g0/LocalCache/Roaming/ohmpath') });
+        try { await voiceRecovery; } catch { throw new Error('Saved voice recovery failed. The original encrypted connection was preserved.'); }
+      }
+    }
     return elevenLabs.handle(voiceConnectionActions[action], payload);
   }
   if (action === 'openCompanion') return openCompanion();

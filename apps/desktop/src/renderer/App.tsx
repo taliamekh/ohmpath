@@ -19,6 +19,7 @@ type Capture = { stream: MediaStream; context: AudioContext; source: MediaStream
 const tabs: { id: Tab; label: string; icon: string }[] = [
   { id: "bench", label: "Live help", icon: "⌘" },
   { id: "photo", label: "Photo help", icon: "▧" },
+  { id: "turret", label: "Turret control", icon: "⌖" },
   { id: "devices", label: "Devices", icon: "⌑" },
   { id: "settings", label: "Settings", icon: "⚙" },
 ];
@@ -67,6 +68,9 @@ function isInteractiveTarget(target: EventTarget | null) {
 function App() {
   const [tab, setTab] = useState<Tab>("bench");
   const [photoWorkspaceVisited, setPhotoWorkspaceVisited] = useState(false);
+  const [liveVoiceSetup, setLiveVoiceSetup] = useState(false);
+  const [enablingVoice, setEnablingVoice] = useState(false);
+  const [liveVoiceError, setLiveVoiceError] = useState("");
   const previousTabRef = useRef<Tab>("bench");
   const [health, setHealth] = useState<AnyRecord | null>(null);
   const [sessions, setSessions] = useState<AnyRecord[]>([]);
@@ -108,6 +112,7 @@ function App() {
   const [guideExpression, setGuideExpression] = useState<GuideExpression>("neutral");
   const [visualCaption, setVisualCaption] = useState("");
   const [photoCapture, setPhotoCapture] = useState<PhotoHelpImage>();
+  const cameraCaptureRef = useRef<(() => Promise<void>) | null>(null);
   const pendingPhotoCaptureRef = useRef<PhotoHelpImage | undefined>(undefined);
   pendingPhotoCaptureRef.current = photoCapture;
   const [advancedOpen, setAdvancedOpen] = useState(false);
@@ -120,11 +125,13 @@ function App() {
     try { return localStorage.getItem("ohmpath.subtitles") !== "off"; } catch { return true; }
   });
   const [voiceStatus, setVoiceStatus] = useState<AnyRecord | null>(null);
+  const [voiceStatusError, setVoiceStatusError] = useState("");
+  const [voiceStatusChecking, setVoiceStatusChecking] = useState(false);
+  const voiceStatusGenerationRef = useRef(0);
   const [voiceState, setVoiceState] = useState<"idle" | "requesting" | "recording" | "transcribing">("idle");
   const [recordingSeconds, setRecordingSeconds] = useState(0);
   const [localSpeechEnabled, setLocalSpeechEnabled] = useState(false);
   const [localVoice, setLocalVoice] = useState<SpeechSynthesisVoice | null>(null);
-  const [transcriptTest, setTranscriptTest] = useState("");
   const [voiceReply, setVoiceReply] = useState<AnyRecord | null>(null);
   const captureRef = useRef<Capture | null>(null);
   const speechCancelledRef = useRef(false);
@@ -134,6 +141,33 @@ function App() {
   const sessionIdRef = useRef("");
   const sessionStatusRef = useRef<string>("unknown");
   const lastCompanionPayloadRef = useRef("");
+  const refreshVoiceStatus = useCallback(async () => {
+    const generation = ++voiceStatusGenerationRef.current;
+    setVoiceStatusChecking(true);
+    setVoiceStatusError("");
+    let timer = 0;
+    try {
+      const status = await Promise.race([
+        request<AnyRecord>("voiceStatus"),
+        new Promise<never>((_, reject) => {
+          timer = window.setTimeout(() => reject(new Error("Speech status check timed out. Try again.")), 8000);
+        }),
+      ]);
+      if (generation !== voiceStatusGenerationRef.current) return;
+      setVoiceStatus(status);
+      if (status?.local_only !== true) setVoiceStatusError("The local speech service did not identify itself as local.");
+      else if (status.status === "not_installed") setVoiceStatusError("The local speech executable or model was not found.");
+      else if (!["installed", "ready"].includes(status.status ?? ""))
+        setVoiceStatusError(`The speech service reported ${status.status || "an unknown status"}.`);
+    } catch (problem) {
+      if (generation !== voiceStatusGenerationRef.current) return;
+      setVoiceStatus(current => ({ ...current, status: "unavailable" }));
+      setVoiceStatusError(problem instanceof Error ? problem.message : "Could not check local speech. Try again.");
+    } finally {
+      window.clearTimeout(timer);
+      if (generation === voiceStatusGenerationRef.current) setVoiceStatusChecking(false);
+    }
+  }, []);
   const spokenAnswer = useElevenLabsSpeech(
     speaking => setActivity(speaking ? "speaking" : sessionStatusRef.current === "paused" && tab === "bench" ? "paused" : "idle"),
     message => { setError(message); setVisualCaption(message); setActivity("error"); },
@@ -211,11 +245,7 @@ function App() {
     return () => { alive = false; };
   }, [loadSession]);
 
-  useEffect(() => {
-    request<AnyRecord>("voiceStatus").then(setVoiceStatus).catch((problem) => {
-      setVoiceStatus({ provider: "whisper.cpp", model: "small.en", status: "not_installed", local_only: true, microphone: "user_controlled", recording: false, hands_free: "unverified", error: problem instanceof Error ? problem.message : "Status unavailable" });
-    });
-  }, []);
+  useEffect(() => { void refreshVoiceStatus(); }, [refreshVoiceStatus]);
 
   useEffect(() => {
     const unsubscribe = window.ohmpath?.onServiceStopped?.(() => {
@@ -375,8 +405,28 @@ function App() {
   }
 
   function toggleLocalSpeech(enabled: boolean) {
-    if (!enabled) cancelLocalSpeech();
+    cancelLocalSpeech();
     setLocalSpeechEnabled(enabled);
+  }
+
+  async function enableLiveVoice() {
+    if (enablingVoice) return { available: false, reason: "Voice setup is still running. Try again in a moment." };
+    setEnablingVoice(true); setLiveVoiceError("");
+    cancelLocalSpeech();
+    try {
+      await request("elevenLabsSetGenerationEnabled", { enabled: true, characterBudget: 1000 });
+      setLocalSpeechEnabled(false);
+      const status = await spokenAnswer.refresh();
+      setLiveVoiceSetup(!status.available);
+      setLiveVoiceError(status.reason);
+      return status;
+    } catch {
+      const status = await spokenAnswer.refresh();
+      const reason = status.reason || "Voice could not be enabled. Check Voice setup.";
+      setLiveVoiceError(reason);
+      setLiveVoiceSetup(true);
+      return { available: false, reason };
+    } finally { setEnablingVoice(false); }
   }
 
   async function readSelectedMeterImage() {
@@ -637,22 +687,6 @@ function App() {
     setVoiceState("idle");
   }
 
-  async function submitTranscriptTest() {
-    if (!transcriptTest.trim() || !sessionId) return;
-    const requestedSid = sessionId;
-    const generation = voiceGenerationRef.current;
-    await run("voice-test", async () => {
-      const result = await request<AnyRecord>("voiceText", {
-        sid: requestedSid, text: transcriptTest.trim(), utterance_id: crypto.randomUUID(),
-        ...(activeRequest?.request_id ? { request_id: activeRequest.request_id } : {}),
-        ...(confirmation?.confirmation_id ? { confirmation_id: confirmation.confirmation_id } : {}),
-      });
-      if (generation !== voiceGenerationRef.current || requestedSid !== sessionIdRef.current || sessionStatusRef.current !== "active") return;
-      await handleVoiceResult(result, requestedSid, generation);
-      setNotice("Typed transcript test routed locally. No microphone was used.");
-    });
-  }
-
   async function handleVoiceResult(response: AnyRecord, expectedSid = sessionIdRef.current, expectedGeneration = voiceGenerationRef.current) {
     if (!expectedSid || sessionIdRef.current !== expectedSid || voiceGenerationRef.current !== expectedGeneration || sessionStatusRef.current !== "active") return;
     setVoiceReply(response);
@@ -671,7 +705,7 @@ function App() {
   }
 
   function speakReadback() {
-    if (confirmation && spokenAnswer.available && sessionStatusRef.current === "active" && sessionIdRef.current) {
+    if (confirmation && !localSpeechEnabled && spokenAnswer.available && sessionStatusRef.current === "active" && sessionIdRef.current) {
       cancelLocalSpeech();
       const sid = sessionIdRef.current;
       const generation = speechGenerationRef.current;
@@ -717,11 +751,11 @@ function App() {
   }, [sessionId, session?.revisions?.circuit_revision, session?.arming_epoch,
     activeRequest?.request_id, confirmation?.confirmation_id, tab, visualPaused, cancelLocalSpeech]);
 
-  const speakLocalText = useCallback((value: unknown) => {
-    if (spokenAnswer.available && typeof value === "string" && value.trim()) {
+  const speakLocalText = useCallback((value: unknown, onComplete?: () => void) => {
+    if (!localSpeechEnabled && spokenAnswer.available && typeof value === "string" && value.trim()) {
       cancelLocalSpeech();
       setVisualCaption(value);
-      spokenAnswer.speak(value);
+      spokenAnswer.speak(value, onComplete);
       return;
     }
     if (!localSpeechEnabled || !localVoice || !("speechSynthesis" in window)) return;
@@ -738,12 +772,16 @@ function App() {
     utterance.voice = localVoice;
     activeSpeechRef.current = utterance;
     utterance.onstart = () => {
-      if (generation === speechGenerationRef.current) setActivity("speaking");
+      if (generation === speechGenerationRef.current) {
+        setVisualCaption(text);
+        setActivity("speaking");
+      }
     };
     utterance.onend = () => {
       if (speechCancelledRef.current || generation !== speechGenerationRef.current) return;
       activeSpeechRef.current = null;
       setActivity("idle");
+      onComplete?.();
     };
     utterance.onerror = () => {
       if (speechCancelledRef.current || generation !== speechGenerationRef.current) return;
@@ -784,7 +822,7 @@ function App() {
     const { focus_region, ...originalCapture } = capture;
     const result = await request<{ image: PhotoHelpImage }>("photoImportCapture", originalCapture);
     if (!snapshotMountedRef.current || generation !== snapshotGenerationRef.current
-        || snapshotContextRef.current.tab !== "bench" || snapshotContextRef.current.paused) {
+        || !["bench", "photo"].includes(snapshotContextRef.current.tab) || snapshotContextRef.current.paused) {
       await request("photoReleaseImage", { image_id: result.image.image_id }).catch(() => undefined);
       return;
     }
@@ -799,6 +837,18 @@ function App() {
     try { localStorage.setItem("ohmpath.subtitles", enabled ? "on" : "off"); } catch { /* Session-only preference when storage is unavailable. */ }
   }
 
+  async function keepSpokenQuestion(question: string, capture: (question: string) => Promise<void>) {
+    // Camera availability must not decide whether a valid transcript is kept.
+    // This only fills a draft; it never submits a model request.
+    setInvestigatorPrefill(question);
+    await capture(question);
+    if (snapshotMountedRef.current && snapshotContextRef.current.tab === "bench"
+        && !snapshotContextRef.current.paused) {
+      setVisualCaption("Your spoken question is saved. Review it and add a photo before asking.");
+      setTab("photo");
+    }
+  }
+
   function changePushToTalkShortcut(code: string) {
     setPushToTalkShortcut(code);
     try {
@@ -811,6 +861,14 @@ function App() {
     setActivity(next);
     setGuideExpression(next === "thinking" ? "thinking" : next === "error" ? "stumped" : "neutral");
     setVisualCaption(caption || "");
+  }, []);
+
+  const captureOverviewFromPhotoHelp = useCallback(async () => {
+    if (!cameraCaptureRef.current) {
+      setError("Open the overview camera in Live help before taking a Photo help snapshot.");
+      return;
+    }
+    await cameraCaptureRef.current();
   }, []);
 
   useEffect(() => {
@@ -849,18 +907,24 @@ function App() {
     return () => window.removeEventListener("keydown", useShortcut);
   }, [pushToTalkShortcut, tab, voiceState, sessionId, session?.status, voiceStatus?.status, busy]);
 
-  const pushToTalkReady = Boolean(sessionId && session?.status === "active" && ["ready", "installed"].includes(voiceStatus?.status) && !busy);
-  const pushToTalkText = voiceState === "recording" ? `Listening · 00:${String(recordingSeconds).padStart(2, "0")}`
-    : voiceState === "requesting" ? "Opening mic…" : voiceState === "transcribing" ? "Transcribing…" : "Push to talk";
   const cameraCaption = confirmation?.readback_text || visualCaption
     || (voiceReply?.route === "question" && typeof voiceReply.result?.text === "string" ? voiceReply.result.text : "")
     || (activity !== "idle" ? companionCaption : "");
-  const pushToTalkControl = <button type="button" className={`camera-push-to-talk${voiceState === "recording" ? " is-listening" : ""}`}
-    aria-pressed={voiceState === "recording"} title={pushToTalkShortcut ? `Push to talk · ${shortcutLabel(pushToTalkShortcut)}` : "Push to talk · set a shortcut in Settings"}
-    disabled={voiceState === "requesting" || voiceState === "transcribing" || voiceState === "idle" && !pushToTalkReady}
-    onClick={() => { if (voiceState === "recording") void stopPushToTalk(true); else if (voiceState === "idle") void startPushToTalk(); }}>
-    <span aria-hidden="true">{voiceState === "recording" ? "■" : "●"}</span>{pushToTalkText}{pushToTalkShortcut && <kbd>{shortcutLabel(pushToTalkShortcut)}</kbd>}
-  </button>;
+
+  const helperAndSessions = <>
+    <button className="avatar-button" title="Show or hide the helper" aria-pressed={showGuide} onClick={() => setShowGuide((visible) => !visible)}>Toggle helper</button>
+    <details className="session-picker topbar-session-picker"><summary>Saved sessions</summary><div>
+      <label htmlFor="session-select">SESSION</label>
+      <select id="session-select" value={sessionId} onChange={(event) => run("session", () => loadSession(event.target.value))}>
+        <option value="">Choose a bench…</option>
+        {sessions.map((item) => <option key={item.session_id} value={item.session_id}>{item.name} · {item.status}</option>)}
+      </select>
+      <button className="button secondary small report-export-button" onClick={saveLocalReport} disabled={!sessionId || Boolean(busy)}>{busy === "export" ? "Preparing report…" : "Save local report"}<span>↓</span></button>
+      <small className="report-export-note">Evidence summary only · excludes raw audio, images, firmware logs, and account details.</small>
+      <button className="text-button new-session-toggle" onClick={() => setShowNewSession((visible) => !visible)}>{showNewSession ? "Close new session" : "+ New session"}</button>
+      {showNewSession && <div className="new-session-popover"><label className="session-name-field"><span>SESSION NAME</span><input value={newSessionName} onChange={(event) => setNewSessionName(event.target.value)} maxLength={100} /></label><SessionModeOptions value={newSessionMode} onChange={setNewSessionMode} /><button className="button primary" onClick={createSession} disabled={Boolean(busy)}>{busy === "create" ? "Creating…" : `Create ${newSessionMode === "supervised" ? "manual" : "practice"} bench`}<span>→</span></button><small>Creating a session does not start a test or take a measurement.</small></div>}
+    </div></details>
+  </>;
 
   return (
     <div className={`app-shell journey-theme${reducedMotion ? " reduce-motion" : ""}`}>
@@ -880,75 +944,45 @@ function App() {
         </nav>
         </div>
         <div className="sidebar-spacer" />
-        <div className="sidebar-safety">
-          <span className="safety-dot" />
-          <div><strong>Local hardware controls</strong><small>The pointer follows the current Live help check</small></div>
-        </div>
         <div className="sidebar-foot">Build preview <span>0.1</span></div>
       </aside>
 
       <main className="main-shell">
-        <header className="topbar">
-          <div className="breadcrumbs"><span>Ohm Path</span><b>/</b><strong>{tabs.find(item => item.id === tab)?.label ?? "Circuit tools"}</strong></div>
-          <div className="topbar-right">
-            <span className="practice-pill"><i /> LOCAL WORKSPACE</span>
-            <button className="avatar-button" title="Show or hide the helper" aria-pressed={showGuide} onClick={() => setShowGuide((visible) => !visible)}>Toggle helper</button>
-          </div>
-        </header>
+        {tab !== "bench" && <header className="topbar"><div className="topbar-right">{helperAndSessions}</div></header>}
 
         <div className="scroll-area">
           {photoWorkspaceVisited && <div hidden={tab !== "photo"}>
-            <PhotoHelpPage phoneTransfer active={tab === "photo"} initialCapture={photoCapture} onCaptureConsumed={() => setPhotoCapture(undefined)} prefillQuestion={tab === "photo" ? investigatorPrefill : ""} onPrefillConsumed={() => setInvestigatorPrefill("")} onActivity={photoActivity} speechAvailable={spokenAnswer.available || localSpeechEnabled && Boolean(localVoice)} onReadAloud={speakLocalText} onStopSpeaking={cancelLocalSpeech} onPrepareSpeech={spokenAnswer.prepare} onPointWithTurret={showTurretChecks} />
+            <PhotoHelpPage phoneTransfer active={tab === "photo"} initialCapture={photoCapture} onCaptureConsumed={() => setPhotoCapture(undefined)} onCaptureOverview={captureOverviewFromPhotoHelp} prefillQuestion={tab === "photo" ? investigatorPrefill : ""} onPrefillConsumed={() => setInvestigatorPrefill("")} onActivity={photoActivity} speechAvailable={spokenAnswer.available || localSpeechEnabled && Boolean(localVoice)} onReadAloud={speakLocalText} onStopSpeaking={cancelLocalSpeech} onPrepareSpeech={spokenAnswer.prepare} onPointWithTurret={showTurretChecks} />
             {showGuide && tab === "photo" && <div className="photo-help-guide" aria-label="Guide companion"><FrierenGuide activity={activity} expression={guideExpression} reducedMotion={reducedMotion} /></div>}
           </div>}
           <div hidden={tab !== "bench"}>
             <>
-              <div className="live-session-tools">
-                <details className="session-picker"><summary>Saved sessions</summary><div>
-                  <label htmlFor="session-select">SESSION</label>
-                  <select id="session-select" value={sessionId} onChange={(event) => run("session", () => loadSession(event.target.value))}>
-                    <option value="">Choose a bench…</option>
-                    {sessions.map((item) => <option key={item.session_id} value={item.session_id}>{item.name} · {item.status}</option>)}
-                  </select>
-                  <button className="button secondary small report-export-button" onClick={saveLocalReport} disabled={!sessionId || Boolean(busy)}>{busy === "export" ? "Preparing report…" : "Save local report"}<span>↓</span></button>
-                  <small className="report-export-note">Evidence summary only · excludes raw audio, images, firmware logs, and account details.</small>
-                  <button className="text-button new-session-toggle" onClick={() => setShowNewSession((visible) => !visible)}>{showNewSession ? "Close new session" : "+ New session"}</button>
-                  {showNewSession && <div className="new-session-popover"><label className="session-name-field"><span>SESSION NAME</span><input value={newSessionName} onChange={(event) => setNewSessionName(event.target.value)} maxLength={100} /></label><SessionModeOptions value={newSessionMode} onChange={setNewSessionMode} /><button className="button primary" onClick={createSession} disabled={Boolean(busy)}>{busy === "create" ? "Creating…" : `Create ${newSessionMode === "supervised" ? "manual" : "practice"} bench`}<span>→</span></button><small>Creating a session does not start a test or take a measurement.</small></div>}
-                </div></details>
-              </div>
-
+              <section className="panel" aria-label="Live voice controls">
+                <div className="live-voice-controls">
+                  <button className="button primary" disabled={enablingVoice} onClick={() => void enableLiveVoice()}>{enablingVoice ? "Enabling voice…" : spokenAnswer.available && !localSpeechEnabled ? "Frieren voice enabled" : "Enable Frieren voice"}</button>
+                  <button className="button secondary" onClick={() => setLiveVoiceSetup(value => !value)}>Voice setup</button>
+                </div>
+                <small>Uses your selected ElevenLabs voice and the existing 1,000-character launch limit. Enabling does not play audio or move the turret.</small>
+                {liveVoiceError && <p role="alert">{liveVoiceError}</p>}
+                {liveVoiceSetup && <ElevenLabsSettings onChanged={() => { cancelLocalSpeech(); void spokenAnswer.refresh(); }} />}
+              </section>
               {visualPaused && <div className="camera-resume"><span>Camera previews stopped.</span><button className="button secondary small" onClick={() => setVisualPaused(false)} disabled={!health}>Resume camera workspace</button></div>}
               <div className="camera-guide-layout">
                 <CameraWorkspace paused={visualPaused || !health} onSnapshot={useCameraSnapshot} onPause={() => setVisualPaused(true)}
-                  speechPending={spokenAnswer.pending || activity === "speaking"} onStopSpeaking={cancelLocalSpeech}
+                  onRegisterOverviewCapture={capture => { cameraCaptureRef.current = capture; }}
                   caption={cameraCaption} subtitlesEnabled={subtitlesEnabled} onSubtitlesChange={changeSubtitles}
+                  headerActions={tab === "bench" ? helperAndSessions : null}
                   voiceControl={ask => <SpokenQuestion askOnFinish active={tab === "bench" && !visualPaused && Boolean(health)}
-                    onText={question => void ask(question)} onBeforeCapture={() => { cancelLocalSpeech(); spokenAnswer.prepare(); }}
-                    onRecording={recording => photoActivity(recording ? "listening" : "idle", recording ? "I’m listening. Press Finish and open Photo help when you’re ready." : "")} />}
+                    onText={question => void keepSpokenQuestion(question, ask)} onBeforeCapture={() => { cancelLocalSpeech(); spokenAnswer.prepare(); }}
+                    onRecording={recording => photoActivity(recording ? "listening" : "idle", recording ? "Mic on" : "")} />}
                   guide={showGuide ? <FrierenGuide activity={activity} expression={guideExpression} reducedMotion={reducedMotion} /> : undefined} />
               </div>
-              <button type="button" className="button secondary small" onClick={() => setPointerOpen(true)}>Pointer setup for Live help</button>
 
               <details className="service-details"><summary>Connection status</summary><section className="status-ribbon" aria-label="Service status">
                 <StatusItem icon="◉" label="Bench service" value={health?.status === "ready" ? "Connected locally" : "Checking connection"} tone={health?.status === "ready" ? "good" : "muted"} />
                 <StatusItem icon="✦" label="Reasoning" value={reasoningLabel} tone="muted" />
                 <StatusItem icon="⌁" label="Voice" value={voiceOverviewLabel} tone="muted" />
                 <StatusItem icon="⊘" label="Hardware" value={hardwareLabel} tone="locked" />
-              </section></details>
-
-              <details className="voice-details"><summary>Voice details and typed routing</summary><section className="voice-card panel">
-                <div className="voice-orb"><span>⌁</span><i /></div>
-                <div className="voice-content">
-                  <div className="voice-heading"><div><span className="eyebrow">LOCAL VOICE · PUSH TO TALK</span><h2>Talk through a question or reading</h2></div><span className={`voice-status ${["ready", "installed"].includes(voiceStatus?.status) ? "ready" : "unavailable"}`}><i />{voiceStatus?.status === "ready" ? `${voiceStatus.model ?? "Whisper"} ready` : voiceStatus?.status === "installed" ? `${voiceStatus.model ?? "Whisper"} · loads on demand` : voiceStatus?.status === "not_installed" ? "Speech model not installed" : "Checking local speech"}</span></div>
-                  {voiceStatus?.local_only && <span className="local-only-tag">LOCAL ONLY</span>}
-                  {pushToTalkControl}
-                  {voiceStatus?.hands_free === "unverified" && <small className="voice-limit">Hands-free wake words are unverified and unavailable in this preview.</small>}
-                  <details className="transcript-test"><summary>Test routing with typed text <span>NO MICROPHONE</span></summary><div className="transcript-test-row"><input value={transcriptTest} maxLength={4096} onChange={(event) => setTranscriptTest(event.target.value)} placeholder="Try: ‘I read 1.65 volts’ or ask a circuit question" /><button className="button secondary small" onClick={submitTranscriptTest} disabled={!sessionId || !transcriptTest.trim() || Boolean(busy)}>Route text</button></div></details>
-                  {voiceReply?.route === "question" && voiceReply.result && <div className="voice-answer"><strong>Local evidence summary</strong><p>{voiceReply.result.text}</p><small>{voiceReply.result.evidence_ids?.length ? `Evidence: ${voiceReply.result.evidence_ids.join(", ")}` : "No supporting evidence IDs were returned."}{voiceReply.result.limitations?.length ? ` · ${voiceReply.result.limitations.join("; ")}` : ""}</small></div>}
-                  {voiceReply?.route === "question" && (typeof voiceReply.question === "string" || typeof voiceReply.transcript?.text === "string") && <button className="text-button voice-investigate-button" onClick={() => { const originalQuestion = typeof voiceReply.question === "string" ? voiceReply.question : voiceReply.transcript.text; setInvestigatorPrefill(originalQuestion.slice(0, 4000)); setTab("photo"); }}>Ask with a photo →</button>}
-                  {voiceReply?.route === "question" && (spokenAnswer.available || localSpeechEnabled && localVoice) && typeof voiceReply.result?.text === "string" && <button className="button secondary small" onClick={() => speakLocalText(voiceReply.result.text)} disabled={voiceReply.result.text.length > (spokenAnswer.available ? 1000 : 12000) || session?.status !== "active"}>{voiceReply.result.text.length > 12000 ? "Summary too long to read aloud" : spokenAnswer.available ? "Listen to summary" : `Read local summary · ${localVoice?.name}`}</button>}
-                  {voiceReply?.route && <div className="voice-route"><span>ROUTE</span> {niceName(voiceReply.route)}{voiceReply.transcript?.text ? <em>“{voiceReply.transcript.text}”</em> : null}</div>}
-                </div>
               </section></details>
 
               <details className="bench-advanced" open={advancedOpen} onToggle={event => setAdvancedOpen(event.currentTarget.open)}><summary>Measurements and circuit tools</summary><p className="advanced-intro">For KiCad files, simulations, assembly instructions, firmware troubleshooting, and confirmed meter readings.</p><button className="button secondary small" onClick={() => setTab("troubleshoot")}>Open circuit and firmware tools <span>↗</span></button>
@@ -1048,8 +1082,10 @@ function App() {
             <DevicesPage sid={sessionId} paused={session?.status === "paused"} onStop={stopSession} />
           ) : tab === "troubleshoot" ? (
             <TroubleshootPage sessionId={sessionId} circuitRevision={session?.revisions?.circuit_revision ?? ""} contextEpoch={session?.arming_epoch ?? ""} prefillQuestion={investigatorPrefill} onPrefillConsumed={() => setInvestigatorPrefill("")} localSpeechAvailable={(spokenAnswer.available || localSpeechEnabled && Boolean(localVoice)) && session?.status === "active"} onReadAloud={speakLocalText} onStopSpeaking={cancelLocalSpeech} />
+          ) : tab === "turret" ? (
+            <TurretPage focusText={turretQuestion} sharedCamera />
           ) : tab === "settings" ? (
-            <SettingsPage onVoiceChanged={() => { cancelLocalSpeech(); void spokenAnswer.refresh(); }} reducedMotion={reducedMotion} onReducedMotion={setReducedMotion} showGuide={showGuide} onShowGuide={setShowGuide} subtitlesEnabled={subtitlesEnabled} onSubtitles={changeSubtitles} pushToTalkShortcut={pushToTalkShortcut} onPushToTalkShortcut={changePushToTalkShortcut} localSpeechEnabled={localSpeechEnabled} onLocalSpeech={toggleLocalSpeech} localVoice={localVoice} voiceStatus={voiceStatus} reasoningStatus={health?.reasoning} companionEnabled={companionEnabled} companionBusy={companionBusy} companionError={companionError} onCompanion={setFloatingCompanion} />
+            <SettingsPage onVoiceChanged={() => { cancelLocalSpeech(); void spokenAnswer.refresh(); }} onRefreshVoiceStatus={() => void refreshVoiceStatus()} voiceStatusChecking={voiceStatusChecking} voiceStatusError={voiceStatusError} reducedMotion={reducedMotion} onReducedMotion={setReducedMotion} showGuide={showGuide} onShowGuide={setShowGuide} subtitlesEnabled={subtitlesEnabled} onSubtitles={changeSubtitles} pushToTalkShortcut={pushToTalkShortcut} onPushToTalkShortcut={changePushToTalkShortcut} localSpeechEnabled={localSpeechEnabled} onLocalSpeech={toggleLocalSpeech} localVoice={localVoice} voiceStatus={voiceStatus} reasoningStatus={health?.reasoning} companionEnabled={companionEnabled} companionBusy={companionBusy} companionError={companionError} onCompanion={setFloatingCompanion} />
           ) : tab === "bench" || tab === "photo" ? null : <ComingSoon tab={tab} onBack={() => setTab("bench")} />}
         </div>
         <footer className="app-footer"><span>Ohm Path · {isManualSession ? "Manual user-reported entry" : "Local practice environment"}</span><span>Visual guidance is not electrical verification.</span></footer>
@@ -1158,8 +1194,11 @@ function ComingSoon({ tab, onBack }: { tab: Tab; onBack: () => void }) {
   return <section className="coming-soon panel"><div className="coming-orbit"><span>Ω</span><i /><b /></div><span className="eyebrow">WORKSPACE MODULE</span><h1>{title}</h1><p>This area is reserved for {title.toLowerCase()} tools. This preview only shows features backed by the current local service.</p><div className="coming-status"><span /> NO CAPABILITY CLAIMED</div><button className="button secondary" onClick={onBack}>Return to practice bench <span>←</span></button></section>;
 }
 
-function SettingsPage({ onVoiceChanged, reducedMotion, onReducedMotion, showGuide, onShowGuide, subtitlesEnabled, onSubtitles, pushToTalkShortcut, onPushToTalkShortcut, localSpeechEnabled, onLocalSpeech, localVoice, voiceStatus, reasoningStatus, companionEnabled, companionBusy, companionError, onCompanion }: {
+function SettingsPage({ onVoiceChanged, onRefreshVoiceStatus, voiceStatusChecking, voiceStatusError, reducedMotion, onReducedMotion, showGuide, onShowGuide, subtitlesEnabled, onSubtitles, pushToTalkShortcut, onPushToTalkShortcut, localSpeechEnabled, onLocalSpeech, localVoice, voiceStatus, reasoningStatus, companionEnabled, companionBusy, companionError, onCompanion }: {
   onVoiceChanged: () => void;
+  onRefreshVoiceStatus: () => void;
+  voiceStatusChecking: boolean;
+  voiceStatusError: string;
   reducedMotion: boolean;
   onReducedMotion: (value: boolean) => void;
   showGuide: boolean;
@@ -1196,7 +1235,7 @@ function SettingsPage({ onVoiceChanged, reducedMotion, onReducedMotion, showGuid
           onPushToTalkShortcut(event.code); setCapturingShortcut(false);
         }}>{capturingShortcut ? "Press a key…" : shortcutLabel(pushToTalkShortcut)}</button>{pushToTalkShortcut && <button type="button" className="shortcut-clear" onClick={() => onPushToTalkShortcut("")}>Clear</button>}</div></div>
                 <label className="preference-row"><span><strong>Show guide companion</strong><small>Keep Frieren’s small companion visible on Photo help and circuit tools.</small></span><input type="checkbox" checked={showGuide} onChange={(event) => onShowGuide(event.target.checked)} /></label>
-        <label className="preference-row"><span><strong>Optional local system voice</strong><small>{localVoice ? `System voice: ${localVoice.name}. Use Listen or Read replies aloud. Works without a measurement session.` : "No local system voice is available. Captions remain available."}</small></span><input type="checkbox" checked={localSpeechEnabled} disabled={!localVoice} onChange={(event) => onLocalSpeech(event.target.checked)} /></label>
+        <label className="preference-row"><span><strong>Use local system voice instead of ElevenLabs</strong><small>{localVoice ? `System voice: ${localVoice.name}. When selected, replies use this voice only. No automatic voice switching.` : "No local system voice is available. Captions remain available."}</small></span><input type="checkbox" checked={localSpeechEnabled} disabled={!localVoice} onChange={(event) => onLocalSpeech(event.target.checked)} /></label>
         <label className="preference-row"><span><strong>Floating desktop companion</strong><small>Open a separate activity and caption window. It has no bench controls and opens only when enabled.</small></span><input type="checkbox" checked={companionEnabled} disabled={companionBusy} onChange={(event) => onCompanion(event.target.checked)} /></label>
         {companionError && <p className="companion-settings-error" role="alert">{companionError}</p>}
       </section>
@@ -1206,7 +1245,13 @@ function SettingsPage({ onVoiceChanged, reducedMotion, onReducedMotion, showGuid
       </section>
       <section className="panel settings-panel runtime-panel"><PanelHeader kicker="RUNTIME BOUNDARIES" title="Connected services" />
         <div className="runtime-row"><span><strong>Reasoning</strong><small>{reasoningStatus === "subscription_on_request" ? "Subscription route; account and allowance checks run before each request." : "Preflight status is not currently available."}</small></span><span className={`runtime-state ${reasoningStatus === "subscription_on_request" ? "safe" : "paused"}`}>{reasoningStatus === "subscription_on_request" ? "ON REQUEST" : "UNAVAILABLE"}</span></div>
-        <div className="runtime-row"><span><strong>Local speech recognition</strong><small>whisper.cpp · {voiceStatus?.model ?? "small.en"} · microphone is user-controlled and currently off.</small></span><span className={`runtime-state ${["ready", "installed"].includes(voiceStatus?.status) ? "safe" : "paused"}`}>{voiceStatus?.status?.toUpperCase() ?? "CHECKING"}</span></div>
+        <div className="runtime-row"><span><strong>Local speech recognition</strong><small>whisper.cpp · {voiceStatus?.model ?? "small.en"} · microphone is user-controlled and currently off.</small>{voiceStatusError && <small role="alert">{voiceStatusError}</small>}</span><span className={`runtime-state ${["ready", "installed"].includes(voiceStatus?.status) ? "safe" : "paused"}`}>{voiceStatus?.status?.toUpperCase() ?? "CHECKING"}</span></div>
+        <button type="button" className="button secondary small" onClick={onRefreshVoiceStatus} disabled={voiceStatusChecking}>{voiceStatusChecking ? "Checking local speech…" : "Check local speech again"}</button>
+        {voiceStatus?.status === "not_installed" && voiceStatus?.installation && <details className="speech-installation-details">
+          <summary>Speech file details</summary>
+          <p style={{ overflowWrap: "anywhere" }}>Speech tool: {voiceStatus.installation.executable_exists ? "Found" : "Missing"}<br />{voiceStatus.installation.executable}</p>
+          <p style={{ overflowWrap: "anywhere" }}>English model: {voiceStatus.installation.model_exists ? "Found" : "Missing"}<br />{voiceStatus.installation.model}</p>
+        </details>}
         <div className="runtime-row"><span><strong>ElevenLabs voice</strong><small>Enable above to hear replies. Use Read replies aloud or Listen beside an answer.</small></span><span className="runtime-state">ON REQUEST</span></div>
         <div className="runtime-row"><span><strong>Paid fallback</strong><small>Automatic paid or model downgrade is not enabled.</small></span><span className="runtime-state safe">OFF</span></div>
         <div className="runtime-row"><span><strong>Physical output</strong><small>Laser and motion remain disabled.</small></span><span className="runtime-state paused">LOCKED</span></div>

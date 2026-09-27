@@ -14,6 +14,7 @@ const MAX_QUEUED_SECONDS = 3;
 const MAX_SCHEDULED_SOURCES = 8;
 const MAX_PENDING_CHUNKS = 2048;
 const MAX_SESSION_AUDIO_BYTES = 8 * 1024 * 1024;
+const AUDIO_UNLOCK_TIMEOUT_MS = 5000;
 const REQUEST_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export class SpeechPlayback {
@@ -33,11 +34,20 @@ export class SpeechPlayback {
   /** Unlock audio during Ask/Record; a later answer can use the same context. */
   prepare(): Promise<void> {
     if (!this.context || this.context.state === "closed") this.context = new AudioContext();
-    return this.context.resume();
+    const context = this.context;
+    if (context.state === "running") return Promise.resolve();
+    return new Promise<void>((resolve, reject) => {
+      const timer = window.setTimeout(() => reject(new Error("playback_unavailable")), AUDIO_UNLOCK_TIMEOUT_MS);
+      void context.resume().then(() => {
+        window.clearTimeout(timer);
+        if (context.state === "running") resolve();
+        else reject(new Error("playback_unavailable"));
+      }, error => { window.clearTimeout(timer); reject(error); });
+    });
   }
 
   /** Call synchronously inside the user's click/key gesture, before requesting speech. */
-  arm(requestId: string): void {
+  arm(requestId: string): Promise<void> {
     if (!REQUEST_ID.test(requestId)) throw new Error("invalid_speech_request");
     this.stop();
     if (!this.context || this.context.state === "closed") this.context = new AudioContext();
@@ -46,14 +56,16 @@ export class SpeechPlayback {
     this.bytes = 0;
     this.started = false;
     this.streamEnded = false;
-    this.ready = this.prepare().catch(() => {
+    this.ready = this.prepare();
+    void this.ready.catch(() => {
       if (this.requestId === requestId) this.fail("playback_unavailable");
     });
+    return this.ready;
   }
 
   async receive(event: SpeechWireEvent): Promise<void> {
     if (!event || event.request_id !== this.requestId || !this.context || !this.ready) return;
-    await this.ready;
+    try { await this.ready; } catch { return; } // arm reports the unlock error once.
     if (event.request_id !== this.requestId || !this.context) return;
     if (event.type === "cancelled") { this.stop(event.request_id); return; }
     if (event.type === "error") { this.fail("speech_unavailable"); return; }
@@ -117,7 +129,14 @@ export class SpeechPlayback {
     if (context && context.state !== "closed") void context.close().catch(() => undefined);
   }
 
-  private finish(): void { this.stop(this.requestId ?? undefined); }
+  private finish(): void {
+    const requestId = this.requestId;
+    if (!requestId) return;
+    const wasStarted = this.started;
+    this.stop(requestId);
+    // A short buffer can drain before the delayed started notification.
+    if (!wasStarted) this.onPlaybackState("ended", requestId);
+  }
 
   private pump(): void {
     const context = this.context;

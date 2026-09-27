@@ -24,6 +24,7 @@ test('camera snapshot handoff survives navigation without a nested question work
     browser = await chromium.connectOverCDP(endpoint);
     const context = browser.contexts()[0];
     const page = context.pages()[0] || await context.waitForEvent('page');
+    page.setDefaultTimeout(8000);
     const request = (action: string) => page.evaluate(action => (window as any).ohmpath.request(action), action);
     const camera = page.getByRole('region', { name: 'Camera workspace' });
     await expect(camera.getByText('Overview camera is off')).toBeVisible();
@@ -56,14 +57,15 @@ test('camera snapshot handoff survives navigation without a nested question work
     await camera.getByLabel('Camera device').selectOption('late-replay-canvas');
     await camera.getByRole('button', { name: 'Turn on overview' }).click();
     await expect.poll(() => camera.locator('video').evaluate((video: HTMLVideoElement) => video.videoWidth)).toBeGreaterThan(0);
-    await camera.getByRole('button', { name: 'Take photo for Photo help' }).click();
+    await page.getByRole('navigation', { name: 'Workspace' }).getByRole('button', { name: 'Photo help' }).click();
+    await page.getByRole('button', { name: 'Take photo from live overview' }).click();
     await expect(page.locator('.photo-help-page').getByText('Overview snapshot').first()).toBeVisible();
     expect((await request('testAudit') as any).captures).toHaveLength(1);
     expect(await page.evaluate(() => (window as any).__replayCameraStream.getVideoTracks()[0].readyState)).toBe('live');
 
     await page.getByRole('navigation', { name: 'Workspace' }).getByRole('button', { name: 'Live help' }).click();
     await expect(camera).toBeVisible();
-    await expect(camera.getByRole('button', { name: 'Take photo for Photo help' })).toBeVisible();
+    await expect(camera.getByRole('button', { name: 'Take photo for Photo help' })).toHaveCount(0);
     await expect(camera.locator('.camera-question-widget')).toHaveCount(0);
     await expect(camera.locator('.photo-help-page').getByText('Overview snapshot')).toHaveCount(0);
     const audit = await request('testAudit') as any;

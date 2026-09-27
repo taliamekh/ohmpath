@@ -72,11 +72,11 @@ test('offline Photo help retains completed workspace across tabs and clears it e
     await expect.poll(async () => (await audit()).latePending).toBe(true);
     const late = (await audit()).asks.at(-1)!;
     await cameraTab.click();
-    await expect.poll(async () => (await audit()).cancels.some(item =>
-      item.context_id === late.context_id && item.turn_id === null)).toBe(true);
+    expect((await audit()).cancels.some(item =>
+      item.context_id === late.context_id && item.turn_id === null)).toBe(false);
     await page.evaluate(() => (window as any).ohmpath.request('testResolveLateAsk'));
-    await expect.poll(async () => (await audit()).cancels.filter(item => item.context_id === late.context_id).length)
-      .toBeGreaterThanOrEqual(2);
+    await expect.poll(async () => (await audit()).cancels.some(item =>
+      item.context_id === late.context_id && item.turn_id === late.turn_id)).toBe(true);
     await photoTab.click();
     await expect(page.locator('.photo-help-explanation')).toHaveText('Replay explanation for follow-up question');
     await expect(page.getByText('Replay explanation for late request')).toHaveCount(0);

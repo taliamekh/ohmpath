@@ -207,7 +207,7 @@ def create_app(data_dir: Path, user_token: str, model_token: str | None = None) 
     measurements = Measurements(store)
     speech = WhisperWorker()
     investigations = Investigations(store, model_token)
-    photo_help = PhotoHelp()
+    photo_help = PhotoHelp(data_dir=data_dir / "photo-circuits")
     investigation_admission = threading.RLock()
     simulation_slots = threading.BoundedSemaphore(2)
     from ohmpath.vision.tracking import VisualTracker
@@ -640,6 +640,10 @@ def create_app(data_dir: Path, user_token: str, model_token: str | None = None) 
                     raise DomainError("investigator_busy", "Wait for or cancel the current investigation.", 429)
             return photo_help.start(body.context_id, body.question,
                                     [image.model_dump() for image in body.images])
+
+    @app.get("/v1/photo-help/contexts/{context_id}", dependencies=[Depends(user_scope)])
+    def photo_circuit_status(context_id: str):
+        return photo_help.circuit_status(context_id)
 
     @app.get("/v1/photo-help/{turn_id}", dependencies=[Depends(user_scope)])
     def photo_help_status(turn_id: str):
