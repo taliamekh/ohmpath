@@ -1,6 +1,6 @@
 # Frieren local expression assets
 
-Created September 26, 2026 with Codex's **built-in image-generation tool**, using the anime reference image attached by the user. No paid API script or alternate image service was used. The original attachment and intermediate outputs remain outside this repository. These are local prototype derivatives, not a claim of officially licensed artwork or exact pixel reproduction. Public publication remains unapproved.
+Created September 26, 2026 with Codex's **built-in image-generation tool**, using the anime reference image attached by the user. No paid API script or alternate image service was used. The original attachment and intermediate outputs remain outside this repository. These are local prototype derivatives, not a claim of officially licensed artwork or exact pixel reproduction. The project owner authorized publishing the reviewed generated product assets. This does not claim an official license or endorsement.
 
 Reviewed selected files:
 

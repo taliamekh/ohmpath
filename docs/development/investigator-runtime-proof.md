@@ -1,14 +1,6 @@
 # Investigator runtime integration proof
 
-On 2026-09-26, the coordinator separately authorized three bounded
-subscription-backed `gpt-6-astra`/medium proof attempts. Fresh ordinary
-subscription allowance was checked before each; the final check showed 96%
-remaining. No reset or API-key fallback was used by this proof. The one-shot
-script is [`scripts/prove-investigator.py`](../../scripts/prove-investigator.py).
-It requires `--authorized-live-proof`, creates separate random user/model
-capabilities for a temporary loopback bench, and writes aggregate reports
-under ignored `runtime/investigator-proof/`. It does not persist or print
-capabilities, account identifiers, opaque evidence IDs, or raw model text.
+The one-shot [`scripts/prove-investigator.py`](../../scripts/prove-investigator.py) requires explicit live-proof authorization and uses the signed-in subscription route. It writes aggregate reports to ignored runtime storage and does not print credentials, account identifiers or raw model text.
 
 The **final authorized attempt passed** in 49.64 seconds. It created a fresh
 mock three-resistor divider session, set current-limited low-voltage practice

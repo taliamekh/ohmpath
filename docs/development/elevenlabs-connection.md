@@ -1,12 +1,12 @@
 # ElevenLabs account connection
 
-This change links account credentials and a voice choice without generating or previewing speech. The user explicitly prohibited voice tests and credit-consuming requests. Speech playback remains unimplemented in this connection adapter and unverified; connecting an account is not evidence of working spoken output.
+This change links account credentials and a voice choice without generating or previewing speech. Speech playback remains unimplemented in this connection adapter and unverified; connecting an account is not evidence of working spoken output.
 
 ## Link without spending credits
 
 Restart the prepared Ohm Path desktop, open Settings, and find ElevenLabs. Enter a restricted API key and choose **Link account · no speech**. The key needs access to User, Models and read access to Voices for the metadata check. Text to Speech permission can be prepared for the later playback implementation; this adapter never calls a synthesis endpoint.
 
-The proposed account key is named **Ohm Path voice**, has a 1,000-credit cap per credit-refresh period, and has no permissions for agents, voice cloning/design, music, transcription, projects, history, workspace administration or other generation features. Creating the persistent key is a separate account action; local setup does not create it. No payment or upgrade is needed for the linking workflow.
+Use a restricted key with an explicit credit cap and only the metadata/read and text-to-speech permissions needed by the application. Local setup does not create an account key or change billing settings.
 
 The main process stores the API key and sanitized metadata encrypted with Electron `safeStorage` in `%APPDATA%\ohmpath\private\elevenlabs.enc`. On Windows, this uses the current Windows account's protected storage. There is no plaintext fallback. The API key never enters the bench database, model subprocess, exported reports or repository. The password entry is cleared on submission. Removing the local link does not revoke the provider-side API key.
 

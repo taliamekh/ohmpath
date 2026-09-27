@@ -31,7 +31,7 @@ The stricter phase regression caught ear/shoulder mesh interpolation reaching in
 
 Some hidden Electron screenshot attempts timed out. Direct viewport capture and a separate compact Settings replay produced usable captures; the timeout cause remains unproven. No application behavior was weakened to make the functional assertions pass.
 
-The prior 17m31s long-run failure remains preserved. This follow-up does not claim a new successful 20-minute run or prove that the earlier mismatch had the same cause as the newly caught mesh interpolation. Voice, microphone, physical cameras, actuators and electrical tests were not exercised. No purchases, paid fallback or additional reset occurred. Changes remain local.
+The prior 17m31s long-run failure remains preserved. This follow-up does not claim a new successful 20-minute run or prove that the earlier mismatch had the same cause as the newly caught mesh interpolation. Voice, microphone, physical cameras, actuators and electrical tests were not exercised. These checks did not exercise paid providers or physical equipment.
 
 ## Changed areas
 
@@ -49,4 +49,4 @@ The expanded three-pose review caught another alignment error in the first imple
 
 The trailhead layout passed the visual workspace and compact workspace regressions (51.3 and 33.5 seconds), with desktop and 125%-equivalent captures inspected. The final narrowed-mask build passes TypeScript and production bundling. Final character motion verification passed in 52.3 seconds: both irises disappear in each of the three open-eye poses; the lower face retains exactly the same pixel hash before/at each blink; the upper face and waist stay anchored; outer regions move; reduced motion freezes the portrait. The final phase check passed in 17.3 seconds, sampling 2,340 simulated seconds with one hash each for upper face, lower face and waist and 14 outer-region hashes. This is accelerated phase sampling, not a new long wall-clock acceptance run.
 
-No voice, physical camera, actuator, electrical test, paid service or extra reset was used. Shared service contracts are unchanged. The earlier failed long camera session still needs a separately measured full rerun; actual hardware and voice acceptance remain pending. Changes are local, with the scenery checkpoint `33525a0` and the subsequent eyelid correction recorded in Git.
+No voice, physical camera, actuator, electrical test or paid service was used. Shared service contracts are unchanged. The earlier failed long camera session still needs a separately measured full rerun; actual hardware and voice acceptance remain pending. Changes are local, with the scenery checkpoint `33525a0` and the subsequent eyelid correction recorded in Git.

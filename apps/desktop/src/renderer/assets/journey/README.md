@@ -1,6 +1,6 @@
 # Ohm Path countryside artwork
 
-Generated September 26, 2026 with the built-in image-generation tool. No API billing or alternate service was used. The selected PNGs were visually reviewed and copied here without raster editing. Text remains real interface text over the blank sign sprite. These assets are used locally; publication is not authorized by this change.
+Generated September 26, 2026 with the built-in image-generation tool. No API billing or alternate service was used. The selected PNGs were visually reviewed and copied here without raster editing. Text remains real interface text over the blank sign sprite. The project owner authorized publishing these reviewed generated product assets.
 
 | Asset | Dimensions | SHA-256 |
 | --- | --- | --- |
