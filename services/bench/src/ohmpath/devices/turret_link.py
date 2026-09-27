@@ -7,7 +7,6 @@ from importlib.resources import files
 import ipaddress
 import json
 import math
-import os
 from pathlib import Path
 import queue
 import re

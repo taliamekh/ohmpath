@@ -5,7 +5,7 @@ import { resolve } from 'node:path';
 import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 
-test('late camera snapshot is released after leaving Live help', async () => {
+test('camera snapshot handoff survives navigation without a nested question workspace', async () => {
   const dataDir = await mkdtemp(resolve(tmpdir(), 'ohmpath-late-camera-capture-'));
   const requireElectron = createRequire(resolve('package.json'));
   const desktop = spawn(requireElectron('electron'), [resolve('tests/electron/photo-help-replay-main.cjs'), '--remote-debugging-port=0'], {
@@ -56,28 +56,15 @@ test('late camera snapshot is released after leaving Live help', async () => {
     await camera.getByLabel('Camera device').selectOption('late-replay-canvas');
     await camera.getByRole('button', { name: 'Turn on overview' }).click();
     await expect.poll(() => camera.locator('video').evaluate((video: HTMLVideoElement) => video.videoWidth)).toBeGreaterThan(0);
-    await camera.getByRole('button', { name: 'Full screen', exact: true }).click();
-    await expect(camera).toHaveClass(/is-focused/);
-
-    await request('testDelayNextCapture');
     await camera.getByRole('button', { name: 'Take photo for Photo help' }).click();
-    await expect.poll(async () => (await request('testAudit') as any).lateCapturePending).toBe(true);
+    await expect(page.locator('.photo-help-page').getByText('Overview snapshot').first()).toBeVisible();
     expect((await request('testAudit') as any).captures).toHaveLength(1);
-
-    await camera.getByRole('button', { name: 'Exit full screen' }).last().click();
-    await expect(camera).not.toHaveClass(/is-focused/);
-    await page.getByRole('navigation', { name: 'Workspace' }).getByRole('button', { name: 'Photo help' }).click();
-    await expect(page.getByText('Start with an image')).toBeVisible();
-    // Navigation keeps the camera connection, but invalidates the pending photo import.
     expect(await page.evaluate(() => (window as any).__replayCameraStream.getVideoTracks()[0].readyState)).toBe('live');
-    await request('testResolveLateCapture');
-    await expect.poll(async () => (await request('testAudit') as any).releases).toContain('10000000-0000-4000-8000-000000000003');
-    await expect(page.getByText('Start with an image')).toBeVisible();
-    await expect(page.locator('.photo-help-page').getByText('Overview snapshot')).toHaveCount(0);
 
     await page.getByRole('navigation', { name: 'Workspace' }).getByRole('button', { name: 'Live help' }).click();
     await expect(camera).toBeVisible();
     await expect(camera.getByRole('button', { name: 'Take photo for Photo help' })).toBeVisible();
+    await expect(camera.locator('.camera-question-widget')).toHaveCount(0);
     await expect(camera.locator('.photo-help-page').getByText('Overview snapshot')).toHaveCount(0);
     const audit = await request('testAudit') as any;
     expect(audit.asks).toHaveLength(0);

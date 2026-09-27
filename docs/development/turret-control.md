@@ -1,5 +1,9 @@
 # Turret movement workspace
 
+## Current repository checkpoint, September 27, 2026
+
+The integrated tree is committed on the published `codex/direct-phone-camera` branch and includes the turret, Pi camera/motion workers, active-switch fixtures, direct phone camera, standalone Photo help handoff, and their contract/test documentation. The final offline backend/Pi suite passed **824 tests**, with **2 skipped** optional checks; the production TypeScript/Vite build passed; and the desktop unit suite passed **97 tests**. The focused camera handoff and snapshot-lifecycle Electron replays each passed in about 11 seconds. Ruff passes for the Python source directories. A full-tree Ruff run remains non-zero only for compact one-line E701/E702 style findings in test files; those do not affect the passing test results. No physical motor, laser, electrical, microphone, or audible-output acceptance is claimed by these checks.
+
 ## Latest native-app check, September 27
 
 The real overview-image question identified the UNO R3 and three resistors, marked four details, and returned three ordered visual/continuity/resistance checks with explicit uncertainty. This verifies a real reasoning response, not electrical measurements or an established fault. The local no-session spoken-question flow and reply playback passed the synthetic Electron workflow; human microphone capture and audibility of this continuation remain unconfirmed.

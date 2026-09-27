@@ -255,7 +255,10 @@ test('photo drafts and live spoken questions produce bounded speech without a me
     const live = await audit();
     expect(live.asks).toBe(2);
     expect(live.lastQuestion).toBe('Where is the ground connection?');
-    expect(live.lastImages).toEqual(['10000000-0000-4000-8000-000000000002']);
+    expect(live.lastImages).toEqual([
+      '10000000-0000-4000-8000-000000000001',
+      '10000000-0000-4000-8000-000000000002',
+    ]);
     expect(live.captures).toHaveLength(1);
     expect(live.captures[0].source).toBe('pi');
     expect(Date.now() - live.captures[0].captured_at).toBeLessThan(10000);
