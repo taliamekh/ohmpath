@@ -68,6 +68,14 @@ export default function ElevenLabsSettings({ onChanged }: { onChanged?: () => vo
   const count = connection?.subscription?.character_count;
   const limit = connection?.subscription?.character_limit;
   const remaining = typeof count === "number" && typeof limit === "number" ? Math.max(0, limit - count) : null;
+  const selectedVoice = connection?.voices.find((voice) => voice.voice_id === connection.selected_voice_id);
+  const selectedVoiceDescription = selectedVoice?.category === "generated"
+    ? "Original designed voice selected."
+    : selectedVoice?.category === "cloned"
+      ? "Custom voice clone selected. Use a short sample to check how it sounds."
+    : selectedVoice?.category === "premade"
+      ? "Stock voice selected."
+      : "Choose a voice for spoken answers.";
 
   return <section className="panel settings-panel elevenlabs-panel" aria-label="ElevenLabs connection">
     <div className="panel-header"><div><span className="eyebrow">SPOKEN ANSWERS</span><h2>ElevenLabs</h2></div>
@@ -97,7 +105,7 @@ export default function ElevenLabsSettings({ onChanged }: { onChanged?: () => vo
       </div>
       {connection.subscription?.overage_status !== "disabled" && <p>Usage-based billing is not verified as disabled. Speech must remain blocked until that is resolved.</p>}
     </div>}
-    <p className="elevenlabs-credit-note">Speech starts only when you press Listen. Text is sent to ElevenLabs for that request. The selected voice is a stock voice, not the anime’s original performance.</p>
+    <p className="elevenlabs-credit-note">Speech starts only when you press Listen. Text is sent to ElevenLabs for that request. {selectedVoiceDescription}</p>
     {notice && <p role="status">{notice}</p>}
     {error && <p className="inline-error" role="alert">{error}</p>}
   </section>;

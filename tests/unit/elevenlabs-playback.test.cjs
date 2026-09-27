@@ -27,7 +27,7 @@ async function fixture(run, { overage = 0, category = 'premade', rate = .5,
     if (url === `${API}/v1/user/subscription`) return json({ tier: 'starter', character_count: 10,
       character_limit: 1000, max_credit_limit_extension: overage });
     if (url === `${API}/v2/voices?page_size=100`) return json({ voices: [
-      { voice_id: VOICE, name: 'Synthetic voice', category },
+      { voice_id: VOICE, name: 'Synthetic voice', category: typeof category === 'function' ? category() : category },
     ] });
     if (url === `${API}/v1/models`) return json([{ model_id: 'eleven_flash_v2_5', name: 'Flash',
       can_do_text_to_speech: true, maximum_text_length_per_request: 1000,
@@ -216,19 +216,63 @@ test('explicit speech reserves conservative credits and emits bounded PCM events
   });
 });
 
-test('unknown spending or shared voice rates fail before POST', async () => {
-  for (const options of [{ overage: null }, { category: 'professional' }]) {
+test('account-owned Voice Design voices are eligible for explicit speech', async () => {
+  await fixture(async ({ connection, calls, events }) => {
+    await linked(connection);
+    await connection.handle('setGenerationEnabled', { enabled: true, characterBudget: 12 });
+    const accepted = await connection.handle('speak', { request_id: REQUEST, text: 'Hello.' });
+    assert.equal(accepted.accepted, true);
+    await until(() => events.some(event => event.type === 'end'));
+    const status = await connection.handle('status');
+    assert.equal(status.voices[0].category, 'generated');
+    assert.equal(calls.filter(call => call.options.method === 'POST').length, 1);
+  }, { category: 'generated' });
+});
+
+test('account-local custom voice clones are eligible for explicit speech', async () => {
+  await fixture(async ({ connection, calls, events }) => {
+    await linked(connection);
+    await connection.handle('setGenerationEnabled', { enabled: true, characterBudget: 12 });
+    const accepted = await connection.handle('speak', { request_id: REQUEST, text: 'Hello.' });
+    assert.equal(accepted.accepted, true);
+    await until(() => events.some(event => event.type === 'end'));
+    const status = await connection.handle('status');
+    assert.equal(status.voices[0].category, 'cloned');
+    assert.equal(calls.filter(call => call.options.method === 'POST').length, 1);
+  }, { category: 'cloned' });
+});
+
+test('professional, shared and unknown categories fail fresh preflight before synthesis', async () => {
+  for (const blockedCategory of ['professional', 'shared', 'unrecognized']) {
+    let currentCategory = 'premade';
     await fixture(async ({ connection, calls }) => {
       await linked(connection);
-      if (options.overage !== null) await connection.handle('setGenerationEnabled',
-        { enabled: true, characterBudget: 20 });
-      else await assert.rejects(connection.handle('setGenerationEnabled',
-        { enabled: true, characterBudget: 20 }), { code: 'spending_blocked' });
-      if (options.overage !== null) await assert.rejects(connection.handle('speak',
-        { request_id: REQUEST, text: 'Hello.' }), { code: 'voice_not_eligible' });
+      await connection.handle('setGenerationEnabled', { enabled: true, characterBudget: 20 });
+      currentCategory = blockedCategory;
+      await assert.rejects(connection.handle('speak', { request_id: REQUEST, text: 'Hello.' }),
+        { code: 'voice_not_eligible' });
       assert.equal(calls.some(call => call.options.method === 'POST'), false);
-    }, options);
+    }, { category: () => currentCategory });
   }
+});
+
+test('voices outside premade, generated and cloned are omitted from usable settings metadata', async () => {
+  await fixture(async ({ connection, calls }) => {
+    await connection.handle('connect', { apiKey: KEY });
+    const status = await connection.handle('status');
+    assert.deepEqual(status.voices, []);
+    await assert.rejects(connection.handle('selectVoice', { voiceId: VOICE }), { code: 'invalid_voice' });
+    assert.equal(calls.some(call => call.options.method === 'POST'), false);
+  }, { category: 'shared' });
+});
+
+test('unknown spending remains blocked independently of generated voice eligibility', async () => {
+  await fixture(async ({ connection, calls }) => {
+    await linked(connection);
+    await assert.rejects(connection.handle('setGenerationEnabled', { enabled: true, characterBudget: 20 }),
+      { code: 'spending_blocked' });
+    assert.equal(calls.some(call => call.options.method === 'POST'), false);
+  }, { category: 'generated', overage: null });
 });
 
 test('cancel and disable interrupt a stalled stream without refunding uncertain spend', async () => {
