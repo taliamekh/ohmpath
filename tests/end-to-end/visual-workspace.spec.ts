@@ -63,6 +63,27 @@ test('visual workspace stays opt-in and photo and turret controls fail closed', 
     await captureViewport(page, 'runtime/visual-workspace.png');
     await page.setViewportSize({ width: 1440, height: 900 });
     await captureViewport(page, 'runtime/theme-live-1440.png');
+    // Native caption buttons occupy the top-right even when DOM fullscreen falls back.
+    // The user's 2560 x 1600 display at 200% scaling has a 1280 x 800 layout viewport.
+    for (const size of [{ width: 980, height: 700 }, { width: 1280, height: 800 }, { width: 1440, height: 900 }]) {
+      await page.setViewportSize(size);
+      await camera.getByRole('button', { name: 'Full screen', exact: true }).click();
+      await expect(camera).toHaveClass(/is-focused/);
+      const exit = camera.locator('.camera-workspace-head').getByRole('button', { name: 'Exit full screen' });
+      const exitBounds = await exit.boundingBox();
+      expect(exitBounds).toBeTruthy();
+      expect(exitBounds!.y).toBeGreaterThanOrEqual(48);
+      expect(exitBounds!.x + exitBounds!.width).toBeLessThan(size.width / 2);
+      expect(await exit.evaluate(node => {
+        const rect = node.getBoundingClientRect();
+        return node.contains(document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2));
+      })).toBe(true);
+      await captureViewport(page, `runtime/theme-focused-${size.width}.png`, false);
+      await exit.click();
+      await expect(camera).not.toHaveClass(/is-focused/);
+      await expect(camera.getByRole('button', { name: 'Full screen', exact: true })).toBeFocused();
+      await captureViewport(page, `runtime/theme-continuous-${size.width}.png`);
+    }
     await page.setViewportSize({ width: 980, height: 700 });
 
     const pausedSessionId = await page.evaluate(async () => {

@@ -12,6 +12,8 @@
 }
 
 .camera-workspace-head { display: flex; align-items: end; justify-content: space-between; gap: 18px; }
+.camera-workspace-title { display: flex; align-items: center; gap: 16px; min-width: 0; }
+.camera-workspace-exit { flex-shrink: 0; }
 .camera-workspace-head-actions { display: flex; align-items: center; gap: 8px; }
 .camera-workspace-head h2 { margin: 5px 0 4px; color: #edf8f2; font-size: clamp(18px, 2vw, 25px); font-weight: 600; letter-spacing: -.035em; }
 .camera-workspace-head p { margin: 0; color: #8aa6a8; font-size: 12px; }
@@ -78,7 +80,7 @@
 .camera-workspace-help-drawer:has(.camera-review-content.is-collapsed) { right: auto; bottom: auto; width: auto; min-height: 0; max-width: min(430px, calc(100% - 32px)); padding: 8px; }
 .camera-workspace-focus-guide, .camera-workspace-focus-bar { display: none; }
 .camera-workspace-focus-caption { position: absolute; left: 50%; bottom: 46px; z-index: 2; display: block; width: max-content; max-width: min(620px, calc(100% - 32px)); max-height: 30%; margin: 0; padding: 7px 11px; overflow: auto; overflow-wrap: anywhere; transform: translateX(-50%); border: 1px solid #81a99b; border-radius: 7px; background: #061513ed; color: #f0faf2; font-size: 13px; line-height: 1.4; text-align: center; white-space: pre-wrap; text-wrap: balance; box-shadow: 0 4px 20px #0008; scrollbar-color: #77b49e #12302a; }
-.camera-workspace:fullscreen, .camera-workspace.is-fallback-focus { position: fixed; inset: 0; z-index: 9999; box-sizing: border-box; width: 100vw; height: 100vh; max-width: none; margin: 0; padding: 48px clamp(12px, 2vh, 24px) clamp(12px, 2vh, 24px); border: 0; border-radius: 0; background: #071116; overflow: hidden; }
+.camera-workspace:fullscreen, .camera-workspace.is-fallback-focus { position: fixed; inset: 0; z-index: 9999; box-sizing: border-box; width: 100vw; height: 100vh; max-width: none; margin: 0; padding: calc(var(--window-titlebar-height, 32px) + 16px) clamp(12px, 2vh, 24px) clamp(12px, 2vh, 24px); border: 0; border-radius: 0; background: #071116; overflow: hidden; }
 .camera-workspace.is-focused .camera-workspace-head { flex-shrink: 0; align-items: center; }
 .camera-workspace.is-focused .camera-workspace-head h2 { margin-bottom: 0; font-size: clamp(17px, 1.5vw, 24px); }
 .camera-workspace.is-focused .camera-workspace-head p { display: none; }
@@ -96,7 +98,7 @@
 .camera-workspace-focus-bar button:disabled { cursor: default; opacity: .48; }
 .camera-workspace.is-focused .camera-workspace-bottom { display: flex; flex-shrink: 0; }
 .camera-workspace.is-focused .camera-workspace-bottom p, .camera-workspace.is-focused .camera-workspace-setup, .camera-workspace.is-focused .camera-workspace-paused, .camera-workspace.is-focused > .camera-workspace-error { display: none; }
-.camera-workspace.is-focused .camera-workspace-help-drawer { top: clamp(68px, 9vh, 100px); bottom: 62px; left: clamp(12px, 2vw, 28px); width: min(430px, 45vw); }
+.camera-workspace.is-focused .camera-workspace-help-drawer { top: calc(var(--window-titlebar-height, 32px) + 64px); bottom: 62px; left: clamp(12px, 2vw, 28px); width: min(430px, 45vw); }
 .camera-workspace.is-focused .camera-workspace-help-drawer:has(.camera-review-content.is-collapsed) { right: auto; bottom: auto; width: auto; max-width: min(430px, calc(100% - 32px)); }
 @media (max-width: 900px) {
   .camera-workspace-head, .camera-workspace-bottom { align-items: start; flex-direction: column; }

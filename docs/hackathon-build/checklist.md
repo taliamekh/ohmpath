@@ -1,6 +1,6 @@
 # Ohm Path build checklist
 
-Status: **implementation in progress; every complete-product milestone below remains unchecked**. Working software, measured results and unmet gates are recorded in the [build handoff](../development/morning-report.md). This is a dependency-driven plan, not a promise that a complete advanced hardware product fits a fixed number of hackathon hours. Break each milestone into a verifiable slice; do not confuse an automated software check with physical acceptance.
+Status: **implementation in progress; every complete-product milestone below remains unchecked**. Working software, measured results and unmet gates are recorded in the [software verification record](../development/software-status.md). This is a dependency-driven plan, not a promise that a complete advanced hardware product fits a fixed number of hackathon hours. Break each milestone into a verifiable slice; do not confuse an automated software check with physical acceptance.
 
 Use the [subagent plan](../development/subagent-work-plan.md) for parallel ownership. The coordinator reviews and commits one meaningful change at a time using [plain-English titles](../../CONTRIBUTING.md). Do not mark a package complete when only one child task passes.
 
