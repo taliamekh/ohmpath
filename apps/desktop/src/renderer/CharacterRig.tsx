@@ -234,7 +234,10 @@ export default function CharacterRig({ src, frame, activity, expression,
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const ctx = canvas.getContext("2d", { alpha: true });
+    // Keep the raster path consistent when diagnostics or accessibility tools
+    // read pixels repeatedly; Chromium can otherwise switch GPU canvases to
+    // CPU rendering mid-session and change stable pixels by rounding.
+    const ctx = canvas.getContext("2d", { alpha: true, willReadFrequently: true });
     if (!ctx) {
       paintedKeyRef.current = null;
       setPaintedKey(null);
@@ -290,7 +293,7 @@ export default function CharacterRig({ src, frame, activity, expression,
         texture = document.createElement("canvas");
         texture.width = width;
         texture.height = height;
-        const textureContext = texture.getContext("2d", { alpha: true });
+        const textureContext = texture.getContext("2d", { alpha: true, willReadFrequently: true });
         if (!textureContext) return;
         textureContext.imageSmoothingEnabled = true;
         textureContext.imageSmoothingQuality = "high";
@@ -300,7 +303,7 @@ export default function CharacterRig({ src, frame, activity, expression,
           closedTexture = document.createElement("canvas");
           closedTexture.width = width;
           closedTexture.height = height;
-          const closedContext = closedTexture.getContext("2d", { alpha: true });
+          const closedContext = closedTexture.getContext("2d", { alpha: true, willReadFrequently: true });
           if (closedContext) {
             closedContext.imageSmoothingEnabled = true;
             closedContext.imageSmoothingQuality = "high";
