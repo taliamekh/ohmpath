@@ -58,7 +58,7 @@ body { background: #eee9d7; }
 .phone-photo-link-body select { max-width: 100%; margin: 0 10px 12px 0; padding: 8px; }
 .phone-photo-link-body small { display: block; margin-top: 12px; line-height: 1.5; }
 .phone-photo-qr { width: 200px; height: 200px; flex: 0 0 200px; border: 1px solid #b7c19b; border-radius: 8px; }
-.journey-theme .brand-lockup { position: relative; isolation: isolate; overflow: hidden; min-height: 82px; gap: 8px; padding: 10px 14px; border: 0; background: transparent; border-radius: 0; }
+.journey-theme .brand-lockup { position: relative; z-index: 1; isolation: isolate; overflow: hidden; min-height: 82px; gap: 8px; padding: 10px 14px; border: 0; background: transparent; border-radius: 0; }
 .journey-theme .brand-lockup::before {
   /* Reuse the painted header plank from the signpost, without its pole. */
   content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none;
@@ -71,6 +71,12 @@ body { background: #eee9d7; }
 .journey-theme .brand-lockup strong { color: #342414; font: 700 23px/1.08 var(--display); letter-spacing: -.5px; text-shadow: 0 1px #f8dc9f; }
 .journey-theme .brand-lockup small { margin-top: 5px; color: #55745c; font: 600 8px/1.35 "Segoe UI", sans-serif; letter-spacing: 1.6px; }
 .journey-theme .trail-signpost { position: relative; flex: 0 0 355px; height: 355px; margin-top: 15px; background: url("./assets/journey/signpost.png") center / 100% 100% no-repeat; }
+.journey-theme .trail-signpost::before {
+  /* Continue the existing shaft upward into the brand plank, hiding its old cap. */
+  content: ""; position: absolute; inset: -30px 0 auto; height: 52px; pointer-events: none;
+  background: url("./assets/journey/signpost.png") center -100px / 100% 355px no-repeat;
+  clip-path: inset(0 43.1% 0 42.4%);
+}
 .journey-theme .workspace-label { display: flex; align-items: center; justify-content: center; height: 86px; margin: 0; padding: 8px 14px 0; color: #342414; font: 700 15px/1.2 var(--display); letter-spacing: .1px; text-shadow: 0 1px #f8dc9f; }
 .journey-theme .side-nav { gap: 0; }
 .journey-theme .journey-nav .nav-item:nth-child(even)::before { transform: scaleX(-1); }
@@ -336,6 +342,7 @@ body { background: #eee9d7; }
   .journey-theme .sidebar { width: 62px; padding: 18px 7px 10px; }
   .journey-theme .brand-lockup { min-height: 56px; padding: 0 0 9px; }
   .journey-theme .trail-signpost { background-size: 230px 355px; margin-top: 12px; }
+  .journey-theme .trail-signpost::before { background-size: 230px 355px; clip-path: inset(0 6px); }
   .journey-theme .workspace-label { height: 66px; overflow: hidden; visibility: hidden; }
   .journey-theme .journey-brand .brand-mark { width: 47px; height: 47px; flex-basis: 47px; }
   .journey-theme .main-shell { width: calc(100% - 62px); margin-left: 62px; }
