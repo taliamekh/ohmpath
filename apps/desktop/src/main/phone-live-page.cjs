@@ -1,6 +1,6 @@
 'use strict';
 
-// Served over the temporary HTTPS pairing link. The capability stays in the URL fragment.
+// Served over the app-lifetime HTTPS pairing link. The capability stays in the URL fragment.
 function phoneLivePage(nonce) {
   if (typeof nonce !== 'string' || !/^[A-Za-z0-9_-]{16,128}$/.test(nonce))
     throw new Error('Invalid page nonce.');
@@ -18,13 +18,20 @@ label{display:block;font-size:14px;font-weight:700;margin:15px 0 7px}select{widt
 <div id="view" class="view"><video id="preview" autoplay muted playsinline aria-label="Your phone camera preview"></video><span class="placeholder">Your camera stays off until you tap Start.</span></div>
 <label for="quality">Video quality</label><select id="quality"><option value="1080">Full detail · 1080p</option><option value="720">Steadier connection · 720p</option></select>
 <button id="start" class="start" type="button">Start rear camera</button><button id="stop" class="stop" type="button" disabled>Stop camera</button>
-<p id="status" class="status" role="status" aria-live="polite">Ready to start. Keep this page open while streaming.</p><p id="detail" class="detail"></p></section>
-<footer>No recording or AI analysis starts here. Choose a snapshot and Ask on the laptop when you want help. If focus is soft, move the phone back or add light. Locking the phone stops this camera session; use a fresh pairing link to restart.</footer></main>
+<p id="status" class="status" role="status" aria-live="polite">Tap Start after connecting the phone camera on your laptop.</p><p id="detail" class="detail"></p></section>
+<footer>No recording or AI analysis starts here. Choose a snapshot and Ask on the laptop when you want help. If focus is soft, move the phone back or add light. Locking the phone stops this camera session; return here and tap Start again after reconnecting on your laptop.</footer></main>
 <script nonce="${nonce}">
 (() => {
   'use strict';
-  const token = new URLSearchParams(location.hash.slice(1)).get('token') || '';
+  const tokenFromLink = new URLSearchParams(location.hash.slice(1)).get('token') || '';
   history.replaceState(null, '', location.pathname + location.search);
+  const storageKey = 'ohmpath-phone-live-token';
+  let storedToken = '';
+  try { storedToken = sessionStorage.getItem(storageKey) || ''; } catch { /* Private storage may be unavailable. */ }
+  const token = tokenFromLink || storedToken;
+  if (/^[A-Za-z0-9_-]{43}$/.test(tokenFromLink)) {
+    try { sessionStorage.setItem(storageKey, tokenFromLink); } catch { /* This tab still keeps the token in memory. */ }
+  }
   const startButton = document.getElementById('start');
   const stopButton = document.getElementById('stop');
   const quality = document.getElementById('quality');
@@ -46,24 +53,27 @@ label{display:block;font-size:14px;font-weight:700;margin:15px 0 7px}select{widt
   let misses = 0;
   const requests = new Set();
   function message(value, error) { status.textContent = value; status.className = 'status' + (error ? ' error' : ''); }
-  function current(id) { return id === generation && phase !== 'stopped'; }
+  function current(id) { return id === generation && phase !== 'idle'; }
   function clearTimers() {
     clearTimeout(pollTimer); clearTimeout(disconnectTimer); clearTimeout(connectTimer);
     pollTimer = disconnectTimer = connectTimer = null;
   }
-  function sendStop() {
-    if (!clientId || !token) return;
-    answerAttempted = false;
-    try {
-      void fetch('/stop', { method: 'POST', credentials: 'omit', cache: 'no-store', keepalive: true,
-        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
-        body: JSON.stringify({ client_id: clientId }) }).catch(() => undefined);
-    } catch { /* Local camera is already stopped. */ }
+  async function releaseRemote(stoppedSession, stoppedClient) {
+    if (!stoppedSession || !stoppedClient || !token) return;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const response = await fetch('/stop', { method: 'POST', credentials: 'omit', cache: 'no-store', keepalive: true,
+          headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+          body: JSON.stringify({ session_id: stoppedSession, client_id: stoppedClient }) });
+        if (response.ok || response.status !== 409) return;
+      } catch { /* A transient network failure can race an answer in flight. */ }
+      if (attempt < 2) await new Promise(resolve => setTimeout(resolve, 300));
+    }
   }
   function stop(reason, error = false) {
-    if (phase === 'stopped') return;
+    if (phase === 'idle') return;
     ++generation;
-    phase = 'stopped';
+    phase = 'idle';
     clearTimers();
     for (const controller of requests) controller.abort();
     requests.clear();
@@ -72,12 +82,17 @@ label{display:block;font-size:14px;font-weight:700;margin:15px 0 7px}select{widt
     preview.srcObject = null;
     view.classList.remove('live');
     if (wakeLock) { void wakeLock.release().catch(() => undefined); wakeLock = null; }
-    sendStop();
-    startButton.disabled = true;
+    const stoppedSession = sessionId, stoppedClient = clientId;
+    if (answerAttempted) void releaseRemote(stoppedSession, stoppedClient);
+    answerAttempted = false;
+    sessionId = null;
+    clientId = null;
+    misses = 0;
+    startButton.disabled = !/^[A-Za-z0-9_-]{43}$/.test(token);
     stopButton.disabled = true;
-    quality.disabled = true;
+    quality.disabled = false;
     detail.textContent = '';
-    message(reason || 'Camera stopped. Open a fresh pairing link on your laptop to restart.', error);
+    message(reason || 'Camera stopped. Connect on your laptop, then tap Start here again.', error);
   }
   async function request(path, options = {}, timeout = 6000) {
     const controller = new AbortController();
@@ -116,9 +131,9 @@ label{display:block;font-size:14px;font-weight:700;margin:15px 0 7px}select{widt
       detail.textContent = settings.width && settings.height ? settings.width + ' × ' + settings.height + ' · live preview' : 'Live preview';
       message('Live on your laptop. Keep this page open.');
     } else if (state === 'failed' || state === 'closed') {
-      stop('Camera connection ended. Open a fresh pairing link on your laptop.', true);
+      stop('Camera connection ended. Connect on your laptop, then tap Start here again.', true);
     } else if (state === 'disconnected' && !disconnectTimer) {
-      disconnectTimer = setTimeout(() => stop('The laptop connection was lost. Open a fresh pairing link.', true), 8000);
+      disconnectTimer = setTimeout(() => stop('The laptop connection was lost. Connect there, then tap Start here again.', true), 8000);
     } else if (state === 'connecting' && disconnectTimer) {
       clearTimeout(disconnectTimer); disconnectTimer = null;
     }
@@ -129,24 +144,24 @@ label{display:block;font-size:14px;font-weight:700;margin:15px 0 7px}select{widt
     try {
       const data = await request('/session');
       if (!current(id)) return;
-      if (data.session_id !== sessionId || data.state !== 'answered') {
-        stop('The laptop ended this session. Open a fresh pairing link.'); return;
+      if (data.active !== true || data.session_id !== sessionId || data.state !== 'answered') {
+        stop('The laptop ended this session. Connect there, then tap Start here again.'); return;
       }
       misses = 0;
     } catch (error) {
       if (!current(id)) return;
-      if (error.message === 'session_unavailable') { stop('The laptop ended this session. Open a fresh pairing link.'); return; }
-      if (++misses >= 3) { stop('Could not reach the laptop. Open a fresh pairing link.', true); return; }
+      if (error.message === 'session_unavailable') { stop('The laptop ended this session. Connect there, then tap Start here again.'); return; }
+      if (++misses >= 3) { stop('Could not reach the laptop. Check the connection, then try Start again.', true); return; }
     }
     schedulePoll(id);
   }
-  async function postAnswer(answer, id) {
+  async function postAnswer(answer, id, answerSession, answerClient) {
     answerAttempted = true;
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
         await request('/answer', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ client_id: clientId, answer }) }, 6000);
-        if (!current(id)) { sendStop(); return; }
+          body: JSON.stringify({ session_id: answerSession, client_id: answerClient, answer }) }, 6000);
+        if (!current(id)) { void releaseRemote(answerSession, answerClient); return; }
         return;
       } catch (error) {
         if (!current(id)) return;
@@ -156,7 +171,7 @@ label{display:block;font-size:14px;font-weight:700;margin:15px 0 7px}select{widt
     }
   }
   async function start() {
-    if (phase !== 'idle' || !token) return;
+    if (phase !== 'idle' || !/^[A-Za-z0-9_-]{43}$/.test(token)) return;
     phase = 'starting';
     const id = ++generation;
     clientId = crypto.randomUUID();
@@ -169,9 +184,12 @@ label{display:block;font-size:14px;font-weight:700;margin:15px 0 7px}select{widt
         throw new Error('This browser needs a secure connection with camera and video support.');
       const data = await request('/session');
       if (!current(id)) return;
-      if (!data || typeof data.session_id !== 'string' || !data.offer || data.offer.type !== 'offer'
+      if (data?.active === false && data.state === 'idle') {
+        stop('On your laptop, press Connect phone camera. Then tap Start here again.'); return;
+      }
+      if (!data || data.active !== true || typeof data.session_id !== 'string' || !data.offer || data.offer.type !== 'offer'
           || typeof data.offer.sdp !== 'string' || data.state !== 'waiting')
-        throw new Error('This pairing link is no longer ready. Open a fresh link on your laptop.');
+        throw new Error('This camera session is unavailable. Connect on your laptop, then tap Start here again.');
       sessionId = data.session_id;
       message('Allow your rear camera when the browser asks.');
       const acquired = await navigator.mediaDevices.getUserMedia(constraints());
@@ -179,7 +197,7 @@ label{display:block;font-size:14px;font-weight:700;margin:15px 0 7px}select{widt
       stream = acquired;
       const tracks = stream.getVideoTracks();
       if (tracks.length !== 1 || stream.getAudioTracks().length) throw new Error('Could not start a video-only camera.');
-      tracks[0].addEventListener('ended', () => { if (current(id)) stop('The camera stopped. Open a fresh pairing link.', true); });
+      tracks[0].addEventListener('ended', () => { if (current(id)) stop('The camera stopped. Connect on your laptop, then tap Start here again.', true); });
       const capabilities = tracks[0].getCapabilities?.();
       if (capabilities?.focusMode?.includes('continuous')) {
         try { await tracks[0].applyConstraints({ advanced: [{ focusMode: 'continuous' }] }); }
@@ -214,7 +232,7 @@ label{display:block;font-size:14px;font-weight:700;margin:15px 0 7px}select{widt
       } catch { /* Safari versions may not expose encoding preferences. */ }
       await gathered(pc, id);
       if (!current(id)) return;
-      await postAnswer({ type: 'answer', sdp: pc.localDescription.sdp }, id);
+      await postAnswer({ type: 'answer', sdp: pc.localDescription.sdp }, id, sessionId, clientId);
       if (!current(id)) return;
       phase = 'connecting';
       connectTimer = setTimeout(() => stop('Video could not connect. Check both devices are on the same Wi-Fi, then pair again.', true), 25000);
@@ -224,17 +242,17 @@ label{display:block;font-size:14px;font-weight:700;margin:15px 0 7px}select{widt
       if (!current(id)) return;
       const denied = error?.name === 'NotAllowedError' || error?.name === 'PermissionDeniedError';
       const missing = error?.name === 'NotFoundError' || error?.name === 'OverconstrainedError';
-      stop(denied ? 'Camera access was denied. Allow it in browser settings, then open a fresh pairing link.'
-        : missing ? 'No usable camera was found. Check your camera permissions and pair again.'
+      stop(denied ? 'Camera access was denied. Allow it in browser settings, then tap Start again.'
+        : missing ? 'No usable camera was found. Check your camera permissions, then try Start again.'
         : error?.message?.startsWith('This ') ? error.message
-        : 'Could not start the camera. Check the laptop and Wi-Fi, then open a fresh pairing link.', true);
+        : 'Could not start the camera. Check the laptop and Wi-Fi, then try Start again.', true);
     }
   }
   startButton.addEventListener('click', () => void start());
-  stopButton.addEventListener('click', () => stop('Camera stopped. Open a fresh pairing link on your laptop to restart.'));
-  window.addEventListener('pagehide', () => stop('Camera stopped. Open a fresh pairing link to restart.'));
+  stopButton.addEventListener('click', () => stop('Camera stopped. Connect on your laptop, then tap Start here again.'));
+  window.addEventListener('pagehide', () => stop('Camera stopped. Tap Start again after reconnecting on your laptop.'));
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'hidden' && phase !== 'idle') stop('Camera stopped when the page was hidden. Open a fresh pairing link.');
+    if (document.visibilityState === 'hidden' && phase !== 'idle') stop('Camera stopped when the page was hidden. Connect on your laptop, then tap Start here again.');
   });
   if (!/^[A-Za-z0-9_-]{43}$/.test(token)) {
     startButton.disabled = true;
