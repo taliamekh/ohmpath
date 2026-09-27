@@ -47,7 +47,7 @@ body { background: #eee9d7; }
   background: linear-gradient(90deg, rgba(27, 49, 29, .12), transparent);
   box-shadow: none;
 }
-.journey-theme .main-shell { width: calc(100% - 258px); margin-left: 258px; background: transparent; }
+.journey-theme .main-shell { width: calc(100% - 258px); margin-left: 258px; background: rgba(250, 248, 235, .52); }
 .journey-theme .phone-photo-link { margin: 0 0 18px; padding: 15px 20px; }
 .journey-theme .phone-photo-link summary { color: #294b35; font-weight: 700; cursor: pointer; }
 .journey-theme .phone-photo-link summary span { margin-left: 14px; color: #52684d; font-size: 11px; font-weight: 500; }
@@ -58,12 +58,17 @@ body { background: #eee9d7; }
 .phone-photo-link-body select { max-width: 100%; margin: 0 10px 12px 0; padding: 8px; }
 .phone-photo-link-body small { display: block; margin-top: 12px; line-height: 1.5; }
 .phone-photo-qr { width: 200px; height: 200px; flex: 0 0 200px; border: 1px solid #b7c19b; border-radius: 8px; }
-.journey-theme .brand-lockup { min-height: 82px; gap: 10px; padding: 3px 6px 12px; border-bottom: 1px solid rgba(88, 111, 72, .24); background: rgba(255, 251, 229, .64); border-radius: 10px; }
-.journey-theme .journey-brand .brand-mark { width: 63px; height: 63px; flex: 0 0 63px; border: 0; border-radius: 0; background: url("./assets/journey/emblem.png") center / contain no-repeat; box-shadow: none; }
+.journey-theme .brand-lockup { position: relative; isolation: isolate; overflow: hidden; min-height: 82px; gap: 8px; padding: 10px 14px; border: 0; background: transparent; border-radius: 0; }
+.journey-theme .brand-lockup::before {
+  /* Reuse the painted header plank from the signpost, without its pole. */
+  content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none;
+  background: url("./assets/journey/signpost.png") center 6.9% / 100% 683% no-repeat;
+}
+.journey-theme .journey-brand .brand-mark { width: 52px; height: 52px; flex: 0 0 52px; border: 0; border-radius: 0; background: url("./assets/journey/emblem.png") center / contain no-repeat; box-shadow: none; filter: drop-shadow(0 1px 1px #493112); }
 .journey-theme .journey-brand .brand-mark > span, .journey-theme .journey-brand .brand-mark > i { display: none; }
 .journey-theme .journey-brand .brand-mark:has(img) { background: none; }
 .journey-theme .journey-brand .brand-mark img { display: block; width: 100%; height: 100%; object-fit: contain; }
-.journey-theme .brand-lockup strong { color: #264b36; font: 700 23px/1.08 var(--display); letter-spacing: -.5px; text-shadow: 0 1px rgba(255,255,236,.7); }
+.journey-theme .brand-lockup strong { color: #342414; font: 700 23px/1.08 var(--display); letter-spacing: -.5px; text-shadow: 0 1px #f8dc9f; }
 .journey-theme .brand-lockup small { margin-top: 5px; color: #55745c; font: 600 8px/1.35 "Segoe UI", sans-serif; letter-spacing: 1.6px; }
 .journey-theme .trail-signpost { position: relative; flex: 0 0 355px; height: 355px; margin-top: 15px; background: url("./assets/journey/signpost.png") center / 100% 100% no-repeat; }
 .journey-theme .workspace-label { display: flex; align-items: center; justify-content: center; height: 86px; margin: 0; padding: 8px 14px 0; color: #342414; font: 700 15px/1.2 var(--display); letter-spacing: .1px; text-shadow: 0 1px #f8dc9f; }
