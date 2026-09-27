@@ -86,6 +86,7 @@ function handle(action, payload = {}) {
   if (action === 'voiceStatus') return { provider: 'offline replay', status: 'not_installed', local_only: true, recording: false };
   if (action === 'phonePhotoSetAccepting') return { accepting: payload.accepting === true };
   if (action === 'phonePhotoStatus' || action === 'phonePhotoStop') return { active: false, interfaces: [], pending: false };
+  if (action === 'phoneLiveStatus') return { link_available: false, active: false, state: 'stopped', session_id: '', url: null, error: null };
   if (action === 'enableCamera') return { allowed: true };
   if (action === 'disableCamera') return { allowed: false };
   if (action === 'piVideoConnect') {
