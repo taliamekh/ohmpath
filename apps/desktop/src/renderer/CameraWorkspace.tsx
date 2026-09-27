@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import "./camera-workspace.css";
 import VisionOverlay from "./VisionOverlay";
+import PhoneLiveCamera from "./PhoneLiveCamera";
 
 export type CameraCapture = {
   data_url: string;
@@ -52,7 +53,7 @@ function snapshotDataUrl(source: HTMLVideoElement | HTMLImageElement): string {
   const sourceWidth = source instanceof HTMLVideoElement ? source.videoWidth : source.naturalWidth;
   const sourceHeight = source instanceof HTMLVideoElement ? source.videoHeight : source.naturalHeight;
   if (!sourceWidth || !sourceHeight) throw new Error("The selected camera has no decoded frame yet.");
-  let scale = Math.min(1, 1600 / Math.max(sourceWidth, sourceHeight));
+  let scale = Math.min(1, 2400 / Math.max(sourceWidth, sourceHeight));
   const canvas = document.createElement("canvas");
   for (let attempt = 0; attempt < 4; attempt += 1) {
     canvas.width = Math.max(1, Math.round(sourceWidth * scale));
@@ -84,6 +85,9 @@ export default function CameraWorkspace({ paused, onSnapshot, onActivity, guide,
   const [overviewEnabled, setOverviewEnabled] = useState(false);
   const [overviewBusy, setOverviewBusy] = useState(false);
   const [overviewError, setOverviewError] = useState("");
+  const [phoneStopSignal, setPhoneStopSignal] = useState(0);
+  const [overviewKind, setOverviewKind] = useState<"local" | "phone">("local");
+  const overviewKindRef = useRef<"local" | "phone">("local");
   const [piPort, setPiPort] = useState("8766");
   const [piToken, setPiToken] = useState("");
   const [piConnected, setPiConnected] = useState(false);
@@ -254,8 +258,47 @@ export default function CameraWorkspace({ paused, onSnapshot, onActivity, guide,
     videoFrameRequest.current = null;
     videoTimeUpdate.current = null;
     lastOverviewFrameAt.current = 0;
-    if (mountedRef.current) setOverviewEnabled(false);
+    if (mountedRef.current) { setOverviewEnabled(false); setTrackingEnabled(false); }
   }, []);
+
+  function stopAllOverview() {
+    setPhoneStopSignal(value => value + 1);
+    stopOverview();
+  }
+
+  function preparePhone() {
+    stopOverview();
+    setOverviewError("");
+    overviewKindRef.current = "phone";
+    setOverviewKind("phone");
+    setLayout("overview");
+    setSnapshotSource("overview");
+  }
+
+  function acceptPhoneStream(stream: MediaStream | null) {
+    if (!stream) {
+      if (overviewKindRef.current === "phone") stopOverview();
+      return;
+    }
+    if (pausedRef.current || !mountedRef.current || overviewKindRef.current !== "phone") { stopTracks(stream); return; }
+    stopOverview();
+    const generation = overviewGeneration.current;
+    const video = videoRef.current;
+    if (!video) { stopTracks(stream); return; }
+    streamRef.current = stream;
+    video.srcObject = stream;
+    void video.play().then(() => {
+      if (generation !== overviewGeneration.current || pausedRef.current || !mountedRef.current) return;
+      setOverviewEnabled(true);
+      watchOverviewFrames(video, generation);
+      onActivity?.("Phone camera connected for a direct preview.");
+    }).catch(() => {
+      if (generation === overviewGeneration.current && mountedRef.current) {
+        stopAllOverview();
+        setOverviewError("The phone video could not play. Create a new link and reconnect.");
+      }
+    });
+  }
 
   const clearPi = useCallback(() => {
     piGeneration.current += 1;
@@ -353,7 +396,9 @@ export default function CameraWorkspace({ paused, onSnapshot, onActivity, guide,
     if (pausedRef.current || overviewBusy || !selectedDevice) return;
     setOverviewBusy(true);
     setOverviewError("");
-    stopOverview();
+    stopAllOverview();
+    overviewKindRef.current = "local";
+    setOverviewKind("local");
     const generation = overviewGeneration.current;
     let opened: MediaStream | null = null;
     try {
@@ -361,7 +406,7 @@ export default function CameraWorkspace({ paused, onSnapshot, onActivity, guide,
       if (result.allowed !== true) throw new Error("Camera permission was not enabled.");
       if (generation !== overviewGeneration.current || pausedRef.current || !mountedRef.current) return;
       opened = await navigator.mediaDevices.getUserMedia({
-        video: { deviceId: { exact: selectedDevice }, width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 15, max: 30 } },
+        video: { deviceId: { exact: selectedDevice }, width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 30, max: 30 } },
         audio: false,
       });
       if (generation !== overviewGeneration.current || pausedRef.current || !mountedRef.current) return;
@@ -484,7 +529,8 @@ export default function CameraWorkspace({ paused, onSnapshot, onActivity, guide,
 
   const freshPiFrame = piConnected && piFrame && clock - piFrame.receivedAt <= FRAME_MAX_AGE_MS ? piFrame : null;
   const currentSource = snapshotSource === "overview" ? overviewEnabled : Boolean(freshPiFrame);
-  const selectedCameraName = devices.find((device) => device.deviceId === selectedDevice)?.label;
+  const selectedCameraName = overviewKind === "phone" ? "Phone camera" : devices.find((device) => device.deviceId === selectedDevice)?.label;
+  const overviewResolution = overviewEnabled && videoRef.current?.videoWidth ? `${videoRef.current.videoWidth} × ${videoRef.current.videoHeight}` : "";
 
   return <section ref={workspaceRef} className={`camera-workspace${focused ? " is-focused" : ""}${fallbackFocusRef.current ? " is-fallback-focus" : ""}`} aria-label="Camera workspace">
     <header className="camera-workspace-head">
@@ -505,8 +551,8 @@ export default function CameraWorkspace({ paused, onSnapshot, onActivity, guide,
         <VisionOverlay source="overview" enabled={trackingEnabled && snapshotSource === "overview" && overviewEnabled && !paused}
           getFrame={() => videoRef.current && videoRef.current.readyState >= 2 && Date.now() - lastOverviewFrameAt.current <= 1000
             ? { media: videoRef.current, stamp: videoRef.current.currentTime } : null} />
-        {!overviewEnabled && <div className="camera-workspace-empty"><span className="camera-workspace-empty-icon">◉</span><strong>Overview camera is off</strong><span>Connect a USB camera or an iPhone camera app listed by Windows.</span></div>}
-        <div className="camera-workspace-feed-label"><span className={overviewEnabled ? "camera-workspace-dot is-live" : "camera-workspace-dot"} /> Overview <small>{overviewEnabled ? "Local preview" : "Not connected"}</small></div>
+        {!overviewEnabled && <div className="camera-workspace-empty"><span className="camera-workspace-empty-icon">◉</span><strong>Overview camera is off</strong><span>Connect your phone below, or choose a Windows camera.</span></div>}
+        <div className="camera-workspace-feed-label"><span className={overviewEnabled ? "camera-workspace-dot is-live" : "camera-workspace-dot"} /> {overviewKind === "phone" ? "Phone" : "Overview"} <small>{overviewEnabled ? `Direct preview · ${overviewResolution}` : "Not connected"}</small></div>
       </div>
       <div className="camera-workspace-feed camera-workspace-pi">
         {freshPiFrame ? <img ref={piImageRef} src={freshPiFrame.url} alt="Latest Raspberry Pi camera frame" /> : <div className="camera-workspace-empty"><span className="camera-workspace-empty-icon">◎</span><strong>{piConnected ? "Waiting for a current frame" : "Pi camera is off"}</strong><span>{piConnected ? "The preview clears when the frame is stale." : "Connect through an existing local tunnel."}</span></div>}
@@ -519,7 +565,7 @@ export default function CameraWorkspace({ paused, onSnapshot, onActivity, guide,
       {(subtitlesEnabled ?? localSubtitlesEnabled) && caption?.trim() && <p className="camera-workspace-focus-caption" aria-label="Camera subtitles" aria-live="polite" tabIndex={0}>{caption}</p>}
     </div>
 
-    {focused && <div className="camera-workspace-focus-bar"><span>{paused ? "Previews stopped" : overviewEnabled || freshPiFrame ? "Camera preview · local" : "No camera connected"}</span><div>{speechPending && onStopSpeaking && <button type="button" onClick={onStopSpeaking}>Stop speaking</button>}<button type="button" onClick={toggleSubtitles} aria-pressed={subtitlesEnabled ?? localSubtitlesEnabled}>{(subtitlesEnabled ?? localSubtitlesEnabled) ? "Subtitles on" : "Subtitles off"}</button><button type="button" onClick={() => { stopOverview(); void disconnectPi(); onPause?.(); }} disabled={paused}>Pause previews</button><button type="button" onClick={() => void exitFocus()}>Exit full screen</button></div></div>}
+    {focused && <div className="camera-workspace-focus-bar"><span>{paused ? "Previews stopped" : overviewEnabled || freshPiFrame ? "Camera preview · local" : "No camera connected"}</span><div>{speechPending && onStopSpeaking && <button type="button" onClick={onStopSpeaking}>Stop speaking</button>}<button type="button" onClick={toggleSubtitles} aria-pressed={subtitlesEnabled ?? localSubtitlesEnabled}>{(subtitlesEnabled ?? localSubtitlesEnabled) ? "Subtitles on" : "Subtitles off"}</button><button type="button" onClick={() => { stopAllOverview(); void disconnectPi(); onPause?.(); }} disabled={paused}>Pause previews</button><button type="button" onClick={() => void exitFocus()}>Exit full screen</button></div></div>}
 
     <div className="camera-workspace-bottom">
       <div className="camera-workspace-capture">
@@ -538,13 +584,14 @@ export default function CameraWorkspace({ paused, onSnapshot, onActivity, guide,
       <p>Follow a selected feature in the chosen view. Frames stay on this computer; Ask sends a separate snapshot for circuit help.</p>
     </div>
 
+    <PhoneLiveCamera paused={paused} stopSignal={phoneStopSignal} onPreparing={preparePhone} onStream={acceptPhoneStream} />
     <details className="camera-workspace-setup">
       <summary>Camera setup <span>{overviewEnabled ? selectedCameraName || "Overview connected" : "Overview off"} · {piConnected ? "Pi connected" : "Pi off"}</span></summary>
       <div className="camera-workspace-setup-grid">
         <div className="camera-workspace-setup-card"><h3>Overview camera</h3><p>Windows camera input, including USB or a Camo virtual camera if one is installed.</p>
           {devices.length > 0 && <label>Camera device<select value={selectedDevice} disabled={overviewEnabled || overviewBusy} onChange={(event) => setSelectedDevice(event.target.value)}><option value="">Choose a camera…</option>{devices.map((device) => <option key={device.deviceId} value={device.deviceId}>{device.label}</option>)}</select></label>}
           <div className="camera-workspace-setup-actions">
-            {overviewEnabled ? <button type="button" onClick={() => { stopOverview(); void request("disableCamera").catch(() => undefined); }} disabled={paused}>Disconnect overview</button> : <><button type="button" onClick={() => void discoverOverview()} disabled={paused || overviewBusy}>{overviewBusy ? "Checking…" : devices.length ? "Refresh cameras" : "Enable & list cameras"}</button><button type="button" onClick={() => void connectOverview()} disabled={paused || overviewBusy || !selectedDevice}>Connect selected</button></>}
+            {overviewEnabled ? <button type="button" onClick={() => { stopAllOverview(); void request("disableCamera").catch(() => undefined); }} disabled={paused}>Disconnect overview</button> : <><button type="button" onClick={() => void discoverOverview()} disabled={paused || overviewBusy}>{overviewBusy ? "Checking…" : devices.length ? "Refresh cameras" : "Enable & list cameras"}</button><button type="button" onClick={() => void connectOverview()} disabled={paused || overviewBusy || !selectedDevice}>Connect selected</button></>}
           </div>
           {overviewError && <p className="camera-workspace-error" role="status">{overviewError}</p>}
         </div>
