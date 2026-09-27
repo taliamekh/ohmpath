@@ -65,6 +65,7 @@ class Turret:
         self.preview_key = None
         self.preview_spot = None
         self.preview_spot_message = ''
+        self.preview_spot_identity = None
         self.preview_encoded = None
         self.identifier = identifier
         self.component_map = None
@@ -197,8 +198,24 @@ class Turret:
                 # This marker belongs to the displayed exposure. A remembered
                 # reference or camera centre must never masquerade as its beam.
                 try:
-                    self.preview_spot = self._detect_spot(frame)
-                    self.preview_spot_message = 'Laser spot observed in this image.'
+                    try:
+                        spotted = self._detect_spot(frame)
+                    except ValueError:
+                        previous = self.preview_spot
+                        identity = self.preview_spot_identity
+                        if (previous is None or identity is None
+                                or identity[0] != frame['generation'] or identity[1] != self.orientation
+                                or not 0 < frame['sequence'] - identity[2] <= 3):
+                            raise
+                        # Preview only: follow a recent candidate through a
+                        # modest image shift. The motion controller retains its
+                        # stricter observed-beam check and never uses this marker.
+                        spotted = detect_red_spot(
+                            frame['image'], (previous['x'], previous['y']),
+                            seed_radius_px=max(10., .025 * max(height, width)))
+                    self.preview_spot = spotted
+                    self.preview_spot_identity = (frame['generation'], self.orientation, frame['sequence'])
+                    self.preview_spot_message = 'A red beam candidate is visible in this image.'
                 except ValueError as exc:
                     self.preview_spot = None
                     self.preview_spot_message = str(exc)
@@ -894,6 +911,12 @@ class Turret:
             seed = (self.aim_reference['x'], self.aim_reference['y'])
             if self.aim_reference.get('source') == 'observed_red_spot':
                 seed_radius_px = max(8., .01 * max(frame['image'].shape[:2]))
+        elif (self.preview_spot is not None and self.preview_spot_identity is not None
+              and self.preview_spot_identity[0] == frame['generation']
+              and self.preview_spot_identity[1] == self.orientation
+              and 0 < frame['sequence'] - self.preview_spot_identity[2] <= 3):
+            seed = (self.preview_spot['x'], self.preview_spot['y'])
+            seed_radius_px = max(10., .025 * max(frame['image'].shape[:2]))
         return detect_red_spot(frame['image'], seed=seed, seed_radius_px=seed_radius_px)
 
     def _observe_spot(self, frame):

@@ -79,3 +79,21 @@ def test_observed_beam_continuity_excludes_secondary_reflection_without_old_poin
     with pytest.raises(ValueError, match='No clear compact'):
         turret._observe_spot(frame)
     assert turret.frame()['frame']['laser_spot'] is None
+
+
+def test_preview_tracks_small_current_frame_shift_without_using_it_for_motion(tmp_path):
+    turret, frame = camera(tmp_path)
+    cv2.circle(frame['image'], (320, 240), 5, (25, 30, 255), -1)
+    assert turret.frame()['frame']['laser_spot']['x'] == pytest.approx(320/639, abs=.002)
+    frame['sequence'] += 1
+    frame['image'][:] = 60
+    cv2.circle(frame['image'], (333, 240), 5, (25, 30, 255), -1)
+    cv2.circle(frame['image'], (470, 300), 5, (25, 30, 255), -1)
+    result = turret.frame()['frame']
+    assert result['laser_spot']['x'] == pytest.approx(333/639, abs=.002)
+    assert turret.aim_reference is None
+    assert not turret.state.get('armed')
+    frame['sequence'] += 1
+    frame['image'][:] = 60
+    cv2.circle(frame['image'], (470, 300), 5, (25, 30, 255), -1)
+    assert turret.frame()['frame']['laser_spot'] is None
