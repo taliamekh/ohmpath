@@ -2,12 +2,13 @@ import { useEffect, useRef, useState } from "react";
 import "./phone-live-camera.css";
 
 type LinkStatus = {
-  active: boolean; session_id: string; state: string; url?: string;
+  link_available?: boolean; active: boolean; session_id: string; state: string; url?: string;
   qr_data_url?: string; answer?: RTCSessionDescriptionInit | null; error?: string;
 };
 type Props = {
   paused: boolean;
   stopSignal: number;
+  resolution: string;
   onPreparing: () => void;
   onStream: (stream: MediaStream | null) => void;
 };
@@ -29,7 +30,7 @@ function gathered(peer: RTCPeerConnection): Promise<void> {
   });
 }
 
-export default function PhoneLiveCamera({ paused, stopSignal, onPreparing, onStream }: Props) {
+export default function PhoneLiveCamera({ paused, stopSignal, resolution, onPreparing, onStream }: Props) {
   const [state, setState] = useState("off");
   const [status, setStatus] = useState<LinkStatus | null>(null);
   const [error, setError] = useState("");
@@ -63,7 +64,10 @@ export default function PhoneLiveCamera({ paused, stopSignal, onPreparing, onStr
     pendingRef.current = "";
     if (request_id) void request("phoneLiveCancelStart", { request_id }).catch(() => undefined);
     callbacks.current.onStream(null);
-    if (mounted.current) { setStatus(null); setState("off"); setQuality(""); setError(reason); }
+    if (mounted.current) {
+      setStatus(previous => previous?.link_available ? { ...previous, active: false, session_id: "", state: "idle", answer: null } : previous);
+      setState("off"); setQuality(""); setError(reason);
+    }
   }
 
   useEffect(() => {
@@ -74,6 +78,12 @@ export default function PhoneLiveCamera({ paused, stopSignal, onPreparing, onStr
   }, []);
   useEffect(() => { if (paused) stop(); }, [paused]);
   useEffect(() => { stop(); }, [stopSignal]);
+  useEffect(() => {
+    const current = generation.current;
+    void request("phoneLiveStatus").then(link => {
+      if (mounted.current && current === generation.current && link.link_available) setStatus(link);
+    }).catch(() => undefined);
+  }, []);
 
   async function start() {
     if (paused || busyRef.current || peerRef.current) return;
@@ -94,13 +104,13 @@ export default function PhoneLiveCamera({ paused, stopSignal, onPreparing, onStr
         if (event.track.kind !== "video") { event.track.stop(); return; }
         callbacks.current.onStream(new MediaStream([event.track]));
         event.track.addEventListener("ended", () => {
-          if (peerRef.current === peer) stop("The phone camera stopped. Create a new link to reconnect.");
+          if (peerRef.current === peer) stop("The phone camera stopped. Connect again with the same code.");
         }, { once: true });
       };
       peer.onconnectionstatechange = () => {
         if (peerRef.current !== peer) return;
-        if (peer.connectionState === "connected") { setState("connected"); setStatus(null); }
-        if (peer.connectionState === "failed") stop("The direct video connection failed. Use the same Wi-Fi, then create a new link.");
+        if (peer.connectionState === "connected") setState("connected");
+        if (peer.connectionState === "failed") stop("The direct video connection failed. Use the same Wi-Fi, then connect again with this code.");
       };
       await peer.setLocalDescription(await peer.createOffer());
       await gathered(peer);
@@ -110,7 +120,7 @@ export default function PhoneLiveCamera({ paused, stopSignal, onPreparing, onStr
         if (link.session_id) await request("phoneLiveStop", { session_id: link.session_id }).catch(() => undefined);
         return;
       }
-      if (!link.active || !link.session_id || !link.qr_data_url) throw new Error("The secure phone link could not open.");
+      if (!link.link_available || !link.active || !link.session_id || !link.qr_data_url) throw new Error("The secure phone link could not open.");
       pendingRef.current = "";
       idRef.current = link.session_id;
       setStatus(link); setState("waiting");
@@ -123,7 +133,7 @@ export default function PhoneLiveCamera({ paused, stopSignal, onPreparing, onStr
           const next = await request("phoneLiveStatus", { session_id: link!.session_id });
           if (current !== generation.current || !mounted.current) return;
           if (!next.active || next.session_id !== link!.session_id) {
-            stop(next.error || "The phone link closed. Create a new link to reconnect."); return;
+            stop(next.error || "The phone camera stopped. Connect again with the same code."); return;
           }
           if (next.answer && !peer.remoteDescription) {
             await peer.setRemoteDescription(next.answer);
@@ -138,7 +148,9 @@ export default function PhoneLiveCamera({ paused, stopSignal, onPreparing, onStr
             if (current !== generation.current || !mounted.current) return;
             stats.forEach(report => {
               if (report.type === "inbound-rtp" && report.kind === "video" && report.frameWidth) {
-                setQuality(`${report.frameWidth} × ${report.frameHeight}${report.framesPerSecond ? ` · ${Math.round(report.framesPerSecond)} fps` : ""}`);
+                // RTP dimensions can precede the phone's rotation metadata. The
+                // parent supplies the decoded video size shown in the preview.
+                setQuality(report.framesPerSecond ? `${Math.round(report.framesPerSecond)} fps` : "");
               }
             });
           } else if (answerAt && Date.now() - answerAt > 30000 && peer.connectionState !== "disconnected") {
@@ -146,7 +158,7 @@ export default function PhoneLiveCamera({ paused, stopSignal, onPreparing, onStr
           }
           if (peer.connectionState === "disconnected") {
             disconnectedAt ||= Date.now();
-            if (Date.now() - disconnectedAt > 8000) { stop("The phone connection was lost. Create a new link to reconnect."); return; }
+            if (Date.now() - disconnectedAt > 8000) { stop("The phone connection was lost. Connect again with this code."); return; }
           }
           misses = 0;
         } catch (failure) {
@@ -170,10 +182,10 @@ export default function PhoneLiveCamera({ paused, stopSignal, onPreparing, onStr
         {state === "off" ? <button type="button" disabled={paused} onClick={() => void start()}>Connect phone camera</button>
           : <button type="button" onClick={() => stop()}>{state === "connected" ? "Disconnect phone" : "Cancel phone connection"}</button>}
       </div>
-      <p role="status">{state === "preparing" ? "Creating and checking your secure link… This can take about a minute." : state === "waiting" ? "Scan the code, then tap Start rear camera on your phone." : state === "connecting" ? "Phone paired · connecting video…" : state === "connected" ? `Phone connected${quality ? ` · ${quality}` : ""}` : "No camera app or paid upgrade needed."}</p>
+      <p role="status">{state === "preparing" ? "Preparing the phone connection…" : state === "waiting" ? "Open this code on your phone, then tap Start rear camera there." : state === "connecting" ? "Phone paired · connecting video…" : state === "connected" ? `Phone connected${resolution ? ` · ${resolution}` : ""}${quality ? ` · ${quality}` : ""}` : "Connect when ready. This code stays the same while Ohm Path is open."}</p>
       {error && <p className="camera-workspace-error" role="alert">{error}</p>}
-      <small>Internet is needed for the temporary secure pairing page, provided by Cloudflare. Video travels directly between your devices. Nothing is recorded; Ask sends only your chosen snapshot.</small>
+      <small>Internet is needed for the secure pairing page, provided by Cloudflare. Video travels directly between your devices. Nothing is recorded; Ask sends only your chosen snapshot.</small>
     </div>
-    {status?.qr_data_url && state === "waiting" && <div className="phone-live-pairing"><img src={status.qr_data_url} alt="Scan to connect your phone camera to Ohm Path" /><small>Keep this code private. It expires in 10 minutes.</small></div>}
+    {status?.link_available && status.qr_data_url && <div className="phone-live-pairing"><img src={status.qr_data_url} alt="Scan to connect your phone camera to Ohm Path" /><small>Keep this code private. Same code while Ohm Path stays open.</small></div>}
   </div>;
 }

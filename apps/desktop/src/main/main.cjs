@@ -14,6 +14,7 @@ const { createPhoneLiveBridge } = require('./phone-live.cjs');
 const { createPhoneLiveTunnel } = require('./phone-live-tunnel.cjs');
 const { phoneLivePage } = require('./phone-live-page.cjs');
 const { waitForPhoneLivePage } = require('./phone-live-ready.cjs');
+const { createQuitGate } = require('./quit-gate.cjs');
 const QRCode = require('qrcode');
 const piVideo = new PiVideoClient();
 const photoImages = createPhotoImages(nativeImage);
@@ -39,6 +40,7 @@ let phonePhotos;
 let phoneLive;
 let phoneLiveStarting = null;
 let phoneLiveQr = { url: '', data: '' };
+let phoneLiveReadyUrl = '';
 let phonePhotoAccepting = false;
 let pendingPhonePhoto = null;
 let phoneQr = { url: '', data: '' };
@@ -64,13 +66,15 @@ async function phonePhotoStatus() {
 
 async function phoneLiveStatus(sessionId) {
   const status = phoneLive.status(sessionId);
-  if (!status.active) { phoneLiveQr = { url: '', data: '' }; return status; }
+  if (!status.link_available) { phoneLiveQr = { url: '', data: '' }; phoneLiveReadyUrl = ''; return status; }
+  if (phoneLiveReadyUrl !== status.url) return { ...status, qr_data_url: '' };
   if (status.url && phoneLiveQr.url !== status.url) {
     const data = await QRCode.toDataURL(status.url, {
       errorCorrectionLevel: 'M', width: 240, margin: 3,
       color: { dark: '#263c2eff', light: '#fffdf4ff' },
     });
-    if (phoneLive.status(sessionId).session_id !== status.session_id) return phoneLiveStatus(sessionId);
+    const current = phoneLive.status(sessionId);
+    if (!current.link_available || current.url !== status.url || current.session_id !== status.session_id) return phoneLiveStatus(sessionId);
     phoneLiveQr = { url: status.url, data };
   }
   return { ...status, qr_data_url: phoneLiveQr.data };
@@ -87,7 +91,7 @@ async function startBench() {
   if (!fs.existsSync(python)) throw new Error('Run the development setup first; the local Python environment is missing.');
   userToken = randomBytes(32).toString('hex');
   const safeEnv = {};
-  for (const key of ['PATH', 'Path', 'SystemRoot', 'WINDIR', 'TEMP', 'TMP', 'LOCALAPPDATA', 'USERPROFILE', 'HOME']) {
+  for (const key of ['PATH', 'Path', 'SystemRoot', 'WINDIR', 'PROGRAMDATA', 'TEMP', 'TMP', 'LOCALAPPDATA', 'USERPROFILE', 'HOME']) {
     if (process.env[key]) safeEnv[key] = process.env[key];
   }
   safeEnv.OHMPATH_USER_TOKEN = userToken;
@@ -185,11 +189,15 @@ ipcMain.handle('ohmpath:request', async (event, action, payload) => {
     let heartbeat;
     try {
       started = await phoneLive.start({ offer: payload.offer });
+      pending.sessionId = started.session_id;
       if (pending.controller.signal.aborted) throw new Error('Phone camera connection was cancelled.');
       heartbeat = setInterval(() => {
         if (!phoneLive.status(started.session_id).active) pending.controller.abort();
       }, 2000);
-      await waitForPhoneLivePage(started.url, { signal: pending.controller.signal });
+      if (phoneLiveReadyUrl !== started.url) {
+        await waitForPhoneLivePage(started.url, { signal: pending.controller.signal });
+        if (!pending.controller.signal.aborted) phoneLiveReadyUrl = started.url;
+      }
       if (pending.controller.signal.aborted) throw new Error('Phone camera connection was cancelled.');
       return phoneLiveStatus(started.session_id);
     } catch (error) {
@@ -202,9 +210,10 @@ ipcMain.handle('ohmpath:request', async (event, action, payload) => {
   }
   if (action === 'phoneLiveCancelStart') {
     if (phoneLiveStarting?.id === payload.request_id) {
-      phoneLiveStarting.controller.abort();
+      const pending = phoneLiveStarting;
+      pending.controller.abort();
       phoneLiveStarting = null;
-      await phoneLive.shutdown();
+      await phoneLive.stop({ session_id: pending.sessionId });
     }
     return { cancelled: true };
   }
@@ -439,7 +448,6 @@ app.whenReady().then(async () => {
     microphoneAllowed = false; cameraAllowed = false;
     phonePhotoAccepting = false;
     void phonePhotos?.stop();
-    void phoneLive?.shutdown();
     phoneLiveStarting?.controller.abort();
     piVideo.disconnect();
     console.error('Ohm Path interface stopped. Restart to recover saved evidence; fresh setup checks are required.');
@@ -455,21 +463,21 @@ app.whenReady().then(async () => {
 });
 
 app.on('window-all-closed', () => app.quit());
-app.on('before-quit', event => {
-  if (stopping) return;
+app.on('before-quit', createQuitGate(async () => {
   stopping = true;
   void elevenLabs?.handle('cancelSpeech', {});
   phonePhotoAccepting = false;
-  void phonePhotos?.stop();
-  void phoneLive?.shutdown();
+  const phoneClosing = Promise.allSettled([phonePhotos?.stop(), phoneLive?.shutdown()]);
   phoneLiveStarting?.controller.abort();
   pendingPhonePhoto = null;
   photoImages.clear();
   piVideo.disconnect();
   if (companionWindow && !companionWindow.isDestroyed()) companionWindow.close();
-  if (!child || child.exitCode !== null) return;
-  event.preventDefault();
-  child.stdin.end();
-  const timer = setTimeout(() => { if (child.exitCode === null) child.kill(); app.quit(); }, 10000);
-  child.once('exit', () => { clearTimeout(timer); app.quit(); });
-});
+  const benchClosing = new Promise(resolve => {
+    if (!child || child.exitCode !== null) { resolve(); return; }
+    const timer = setTimeout(() => { if (child.exitCode === null) child.kill(); resolve(); }, 10000);
+    child.once('exit', () => { clearTimeout(timer); resolve(); });
+    child.stdin.end();
+  });
+  await Promise.allSettled([phoneClosing, benchClosing]);
+}, () => app.quit()));

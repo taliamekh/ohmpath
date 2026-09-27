@@ -80,16 +80,25 @@ function readJson(req) {
 function createPhoneLiveBridge({ tunnelFactory, pageFactory = () => '<!doctype html><title>Ohm Path phone camera</title>', now = Date.now } = {}) {
   if (typeof tunnelFactory !== 'function' || typeof pageFactory !== 'function' || typeof now !== 'function')
     throw new TypeError('A tunnel factory, page factory, and clock are required.');
+  let portal = null;
   let current = null;
   let serial = 0;
-  let last = { active: false, session_id: null, state: 'stopped', url: null,
-    answer: null, error: null, expires_at: null };
+  let last = { state: 'stopped', error: null };
 
-  function snapshot(session) {
-    return { active: Boolean(session.origin), session_id: session.id, state: session.state,
-      url: session.origin ? `${session.origin}/#token=${session.token}` : null,
-      answer: session.answer, error: null,
-      expires_at: new Date(session.expiresAt).toISOString() };
+  function link(p = portal) {
+    return p?.origin && p.token ? `${p.origin}/#token=${p.token}` : null;
+  }
+
+  function snapshot(sessionId) {
+    const url = link();
+    const base = { link_available: Boolean(url), url, error: portal ? null : last.error };
+    if (sessionId && current?.id !== sessionId)
+      return { ...base, active: false, session_id: sessionId, state: 'stopped',
+        answer: null, expires_at: null };
+    if (!current) return { ...base, active: false, session_id: '',
+      state: portal ? 'idle' : last.state, answer: null, expires_at: null };
+    return { ...base, active: true, session_id: current.id, state: current.state,
+      answer: current.answer, expires_at: new Date(current.expiresAt).toISOString() };
   }
 
   function expired(session) {
@@ -99,56 +108,57 @@ function createPhoneLiveBridge({ tunnelFactory, pageFactory = () => '<!doctype h
       || session.state === 'answered' && time - session.lastPhone > PHONE_MS;
   }
 
-  function close(session, state = 'stopped', error = null) {
-    if (current !== session) return Promise.resolve();
+  function endSession(session = current) {
+    if (!session || current !== session) return;
     current = null;
-    last = { active: false, session_id: session.id, state, url: null,
-      answer: null, error, expires_at: null };
-    session.token = null;
     session.offer = null;
     session.answer = null;
     session.clientId = null;
-    clearInterval(session.timer);
-    session.controller.abort();
-    session.cancelListen?.();
-    session.sockets.forEach(socket => socket.destroy());
+  }
+
+  function closePortal(p, state = 'stopped', error = null) {
+    if (portal !== p) return Promise.resolve();
+    portal = null;
+    serial++;
+    endSession();
+    last = { state, error };
+    p.token = null;
+    p.origin = null;
+    clearInterval(p.timer);
+    p.controller.abort();
+    p.cancelListen?.();
+    p.sockets.forEach(socket => socket.destroy());
     const serverClosed = new Promise(resolve => {
-      try { session.server.close(() => resolve()); }
+      try { p.server.close(() => resolve()); }
       catch { resolve(); }
     });
     let tunnelClosed = Promise.resolve();
-    if (session.tunnel) {
-      try { tunnelClosed = Promise.resolve(session.tunnel.stop()).catch(() => undefined); }
+    if (p.tunnel) {
+      try { tunnelClosed = Promise.resolve(p.tunnel.stop()).catch(() => undefined); }
       catch { /* A failed stop cannot restore a closed listener or token. */ }
     }
     return Promise.all([serverClosed, tunnelClosed]).then(() => undefined);
   }
 
   function status(sessionId) {
-    const session = current;
-    if (!session) return sessionId && last.session_id !== sessionId
-      ? { ...last, session_id: sessionId, state: 'stopped', error: null } : { ...last };
-    if (sessionId && sessionId !== session.id) return { active: false, session_id: sessionId,
-      state: 'stopped', url: null, answer: null, error: null, expires_at: null };
-    if (expired(session)) { void close(session); return { ...last }; }
-    session.lastDesktop = now();
-    return snapshot(session);
+    if (current && expired(current)) endSession();
+    if (current && (!sessionId || sessionId === current.id)) current.lastDesktop = now();
+    return snapshot(sessionId);
   }
 
-  async function handle(session, req, res) {
-    if (current !== session || !session.token || expired(session)) {
-      if (current === session) void close(session);
-      return json(res, 410, { error: 'Phone camera session closed.' });
-    }
-    const host = new URL(session.origin).host;
+  async function handle(p, req, res) {
+    if (portal !== p || !p.token || !p.origin)
+      return json(res, 410, { error: 'Phone camera link closed.' });
+    if (current && expired(current)) endSession();
+    const host = new URL(p.origin).host;
     if (headerCount(req, 'host') !== 1 || oneHeader(req, 'host') !== host
-        || headerCount(req, 'origin') > 1 || oneHeader(req, 'origin') && oneHeader(req, 'origin') !== session.origin
+        || headerCount(req, 'origin') > 1 || oneHeader(req, 'origin') && oneHeader(req, 'origin') !== p.origin
         || oneHeader(req, 'sec-fetch-site') === 'cross-site')
       return json(res, 403, { error: 'Phone camera session unavailable.' });
     const time = now();
-    session.requests = session.requests.filter(t => time >= t && time - t < 10_000);
-    if (session.requests.length >= 100) return json(res, 429, { error: 'Try again shortly.' });
-    session.requests.push(time);
+    p.requests = p.requests.filter(t => time >= t && time - t < 10_000);
+    if (p.requests.length >= 100) return json(res, 429, { error: 'Try again shortly.' });
+    p.requests.push(time);
     if (req.method === 'GET' && req.url === '/') {
       const nonce = randomBytes(18).toString('base64url');
       const body = pageFactory(nonce);
@@ -170,15 +180,16 @@ function createPhoneLiveBridge({ tunnelFactory, pageFactory = () => '<!doctype h
     const auth = oneHeader(req, 'authorization');
     const candidate = typeof auth === 'string' && auth.startsWith('Bearer ') ? auth.slice(7) : '';
     const offered = Buffer.from(candidate);
-    const expected = Buffer.from(session.token);
+    const expected = Buffer.from(p.token);
     if (offered.length !== expected.length || !timingSafeEqual(offered, expected))
       return json(res, 403, { error: 'Phone camera session unavailable.' });
     if (req.method === 'GET') {
-      session.lastPhone = time;
-      return json(res, 200, { session_id: session.id, offer: session.offer,
-        state: session.state, expires_at: new Date(session.expiresAt).toISOString() });
+      if (!current) return json(res, 200, { active: false, state: 'idle', session_id: '' });
+      current.lastPhone = time;
+      return json(res, 200, { active: true, session_id: current.id, offer: current.offer,
+        state: current.state, expires_at: new Date(current.expiresAt).toISOString() });
     }
-    if (oneHeader(req, 'origin') !== session.origin)
+    if (oneHeader(req, 'origin') !== p.origin)
       return json(res, 403, { error: 'Phone camera session unavailable.' });
     if (!/^application\/json(?:;\s*charset=utf-8)?$/i.test(oneHeader(req, 'content-type') || ''))
       return json(res, 415, { error: 'Expected JSON.' });
@@ -193,22 +204,24 @@ function createPhoneLiveBridge({ tunnelFactory, pageFactory = () => '<!doctype h
     try { body = await readJson(req); }
     catch (error) { return json(res, error.message === 'large' ? 413 : error.message === 'timeout' ? 408 : 400,
       { error: 'Could not read request.' }); }
-    if (current !== session || expired(session)) {
-      if (current === session) void close(session);
-      return json(res, 410, { error: 'Phone camera session closed.' });
-    }
+    if (portal !== p || !p.token) return json(res, 410, { error: 'Phone camera link closed.' });
+    if (current && expired(current)) endSession();
     if (!body || typeof body !== 'object' || Array.isArray(body)
+        || typeof body.session_id !== 'string'
         || typeof body.client_id !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(body.client_id))
       return json(res, 400, { error: 'Invalid phone session.' });
+    const session = current;
+    if (!session || body.session_id !== session.id)
+      return json(res, 409, { error: 'Phone camera session changed.' });
     if (req.url === '/stop') {
-      if (Object.keys(body).length !== 1) return json(res, 400, { error: 'Invalid request.' });
+      if (Object.keys(body).length !== 2) return json(res, 400, { error: 'Invalid request.' });
       // A paired phone may cancel while permission or its answer is still pending.
       // Once claimed, only that phone can end the session.
       if (session.clientId && session.clientId !== body.client_id) return json(res, 409, { error: 'Phone session is already claimed.' });
-      res.once('finish', () => { void close(session); });
+      res.once('finish', () => endSession(session));
       return json(res, 200, { stopped: true });
     }
-    if (Object.keys(body).length !== 2 || !validSdp(body.answer, 'answer'))
+    if (Object.keys(body).length !== 3 || !validSdp(body.answer, 'answer'))
       return json(res, 400, { error: 'A video-only answer is required.' });
     if (session.clientId) {
       if (session.clientId === body.client_id && session.answer.sdp === body.answer.sdp)
@@ -223,92 +236,106 @@ function createPhoneLiveBridge({ tunnelFactory, pageFactory = () => '<!doctype h
     return json(res, 200, { accepted: true, session_id: session.id });
   }
 
-  async function start({ offer } = {}) {
-    if (!validSdp(offer, 'offer')) throw new TypeError('A video-only WebRTC offer is required.');
-    const turn = ++serial;
-    if (current) await close(current);
-    if (turn !== serial) throw new Error('Phone camera connection was cancelled.');
-    const session = { id: randomUUID(), token: randomBytes(32).toString('base64url'),
-      offer: { type: 'offer', sdp: offer.sdp }, answer: null, clientId: null,
-      state: 'waiting', origin: null, tunnel: null, server: null, sockets: new Set(),
-      controller: new AbortController(), timer: null, requests: [],
-      startedAt: now(), lastDesktop: now(), lastPhone: now(), expiresAt: now() + WAIT_MS };
+  function createPortal() {
+    const p = { token: randomBytes(32).toString('base64url'), origin: null,
+      tunnel: null, server: null, sockets: new Set(), controller: new AbortController(),
+      cancelListen: null, timer: null, requests: [], ready: null };
     const server = http.createServer({ maxHeaderSize: 8192 }, (req, res) => {
-      void handle(session, req, res).catch(() => json(res, 503, { error: 'Phone camera unavailable.' }));
+      void handle(p, req, res).catch(() => json(res, 503, { error: 'Phone camera unavailable.' }));
     });
-    session.server = server;
+    p.server = server;
     server.maxConnections = 8;
     server.maxHeadersCount = 20;
     server.headersTimeout = 5_000;
     server.requestTimeout = READ_MS;
     server.keepAliveTimeout = 1_000;
     server.on('error', () => {
-      if (current === session) void close(session, 'error', 'Phone camera listener closed.');
+      if (portal === p) void closePortal(p, 'error', 'Phone camera listener closed.');
     });
     server.on('connection', socket => {
-      session.sockets.add(socket);
+      p.sockets.add(socket);
       socket.setTimeout(READ_MS, () => socket.destroy());
-      socket.on('close', () => session.sockets.delete(socket));
+      socket.on('close', () => p.sockets.delete(socket));
     });
-    current = session;
-    try {
-      const port = await new Promise((resolve, reject) => {
-        let settled = false;
-        const finish = (error, value) => {
-          if (settled) return;
-          settled = true;
-          session.cancelListen = null;
-          server.off('error', onError);
-          if (error) reject(error);
-          else resolve(value);
-        };
-        const onError = () => finish(new Error('Phone camera listener could not open.'));
-        session.cancelListen = () => finish(new Error('Phone camera connection was cancelled.'));
-        server.once('error', onError);
-        server.listen(0, '127.0.0.1', () => {
-          finish(null, server.address().port);
+    portal = p;
+    p.ready = (async () => {
+      try {
+        const port = await new Promise((resolve, reject) => {
+          let settled = false;
+          const finish = (error, value) => {
+            if (settled) return;
+            settled = true;
+            p.cancelListen = null;
+            server.off('error', onError);
+            if (error) reject(error);
+            else resolve(value);
+          };
+          const onError = () => finish(new Error('Phone camera listener could not open.'));
+          p.cancelListen = () => finish(new Error('Phone camera connection was cancelled.'));
+          server.once('error', onError);
+          server.listen(0, '127.0.0.1', () => {
+            const address = server.address();
+            if (!address) finish(new Error('Phone camera listener could not open.'));
+            else finish(null, address.port);
+          });
         });
-      });
-      if (current !== session || turn !== serial) throw new Error('Phone camera connection was cancelled.');
-      const tunnel = await tunnelFactory(port, { signal: session.controller.signal });
-      if (!tunnel || typeof tunnel.stop !== 'function' || !trustedTunnelUrl(tunnel.url)) {
-        if (typeof tunnel?.stop === 'function')
+        if (portal !== p) throw new Error('Phone camera connection was cancelled.');
+        const tunnel = await tunnelFactory(port, { signal: p.controller.signal });
+        if (!tunnel || typeof tunnel.stop !== 'function' || !trustedTunnelUrl(tunnel.url)) {
+          if (typeof tunnel?.stop === 'function')
+            await Promise.resolve().then(() => tunnel.stop()).catch(() => undefined);
+          throw new Error('The phone camera tunnel returned an untrusted URL.');
+        }
+        if (portal !== p) {
           await Promise.resolve().then(() => tunnel.stop()).catch(() => undefined);
-        throw new Error('The phone camera tunnel returned an untrusted URL.');
+          throw new Error('Phone camera connection was cancelled.');
+        }
+        p.tunnel = tunnel;
+        p.origin = trustedTunnelUrl(tunnel.url);
+        tunnel.onExit?.(() => { void closePortal(p, 'error', 'The phone camera tunnel closed.'); });
+        if (portal !== p) throw new Error('The phone camera tunnel closed before it was ready.');
+        p.timer = setInterval(() => { if (portal === p && current && expired(current)) endSession(); }, 1_000);
+        p.timer.unref?.();
+        last = { state: 'idle', error: null };
+      } catch (error) {
+        const message = /cancelled/i.test(error?.message) ? 'Phone camera connection was cancelled.'
+          : /cloudflared/i.test(error?.message) ? 'Could not start cloudflared. Check the installed tunnel tool.'
+            : /untrusted URL/i.test(error?.message) ? 'The phone camera tunnel returned an untrusted URL.'
+              : /tunnel.*(time|closed)/i.test(error?.message) ? 'The phone camera tunnel did not start. Try again.'
+                : 'Could not open the phone camera connection.';
+        if (portal === p) await closePortal(p, 'error', message);
+        throw new Error(message);
       }
-      if (current !== session || turn !== serial) {
-        await Promise.resolve().then(() => tunnel.stop()).catch(() => undefined);
-        throw new Error('Phone camera connection was cancelled.');
-      }
-      session.tunnel = tunnel;
-      session.origin = trustedTunnelUrl(tunnel.url);
-      tunnel.onExit?.(() => { void close(session, 'error', 'The phone camera tunnel closed.'); });
-      if (current !== session) throw new Error('The phone camera tunnel closed before it was ready.');
-      session.timer = setInterval(() => { if (current === session && expired(session)) void close(session); }, 1_000);
-      session.timer.unref?.();
-      return snapshot(session);
-    } catch (error) {
-      const message = /cancelled/i.test(error?.message) ? 'Phone camera connection was cancelled.'
-        : /cloudflared/i.test(error?.message) ? 'Could not start cloudflared. Check the installed tunnel tool.'
-          : /untrusted URL/i.test(error?.message) ? 'The phone camera tunnel returned an untrusted URL.'
-            : /tunnel.*(time|closed)/i.test(error?.message) ? 'The phone camera tunnel did not start. Try again.'
-              : 'Could not open the phone camera connection.';
-      if (current === session) await close(session, 'error', message);
-      throw new Error(message);
-    }
+    })();
+    return p;
+  }
+
+  async function start({ offer } = {}) {
+    if (!validSdp(offer, 'offer')) throw new TypeError('A video-only WebRTC offer is required.');
+    const turn = ++serial;
+    const p = portal || createPortal();
+    await p.ready;
+    if (portal !== p || turn !== serial) throw new Error('Phone camera connection was cancelled.');
+    endSession();
+    const time = now();
+    current = { id: randomUUID(), offer: { type: 'offer', sdp: offer.sdp },
+      answer: null, clientId: null, state: 'waiting', startedAt: time,
+      lastDesktop: time, lastPhone: time, expiresAt: time + WAIT_MS };
+    return snapshot();
   }
 
   async function stop({ session_id: sessionId } = {}) {
-    if (!current || sessionId && sessionId !== current.id) return status(sessionId);
+    if (sessionId && current?.id !== sessionId) return snapshot(sessionId);
     serial++;
-    await close(current);
-    return status(sessionId);
+    endSession();
+    if (portal && !portal.origin) await closePortal(portal);
+    return snapshot();
   }
 
   async function shutdown() {
     serial++;
-    if (current) await close(current);
-    return { ...last };
+    if (portal) await closePortal(portal);
+    return snapshot();
   }
 
   return { start, status, stop, shutdown };

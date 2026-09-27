@@ -5,7 +5,7 @@ import { resolve } from 'node:path';
 import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 
-test('phone page sends real WebRTC video to Live help and stops both peers without automatic analysis', async () => {
+test('one pairing page supports two explicit WebRTC camera sessions without automatic analysis', async () => {
   const dataDir = await mkdtemp(resolve(tmpdir(), 'ohmpath-phone-live-'));
   const requireHere = createRequire(resolve('package.json'));
   const desktop = spawn(requireHere('electron'), [resolve('tests/electron/phone-live-main.cjs'), '--remote-debugging-port=0'], {
@@ -26,7 +26,10 @@ test('phone page sends real WebRTC video to Live help and stops both peers witho
     const laptop = context.pages()[0] || await context.waitForEvent('page');
     const camera = laptop.getByRole('region', { name: 'Camera workspace' });
     await camera.getByRole('button', { name: 'Connect phone camera', exact: true }).click();
-    await expect(camera.getByRole('img', { name: 'Scan to connect your phone camera to Ohm Path' })).toBeVisible({ timeout: 20000 });
+    const qr = camera.getByRole('img', { name: 'Scan to connect your phone camera to Ohm Path' });
+    await expect(qr).toBeVisible({ timeout: 20000 });
+    const firstCode = await qr.getAttribute('src');
+    expect(firstCode).toMatch(/^data:image\/png;base64,/);
     await laptop.evaluate(() => (window as any).ohmpath.request('testPhoneOpen'));
     const phone = context.pages().find(page => page.url().startsWith('http://127.0.0.1:'))!;
     expect(phone).toBeTruthy();
@@ -76,12 +79,25 @@ test('phone page sends real WebRTC video to Live help and stops both peers witho
     // Opening the review must not submit a model question automatically.
     expect(captureAudit.asks).toHaveLength(0);
     await camera.getByRole('button', { name: 'Back to camera', exact: true }).click();
+    await phone.getByRole('button', { name: 'Stop camera', exact: true }).click();
+    await expect(phone.getByRole('button', { name: 'Start rear camera' })).toBeEnabled();
+    await expect(camera.getByRole('button', { name: 'Connect phone camera', exact: true })).toBeVisible({ timeout: 15000 });
+    await expect(qr).toBeVisible();
+    expect(await qr.getAttribute('src')).toBe(firstCode);
+    await camera.getByRole('button', { name: 'Connect phone camera', exact: true }).click();
+    await expect(camera.getByRole('button', { name: 'Cancel phone connection', exact: true })).toBeVisible();
+    expect(await qr.getAttribute('src')).toBe(firstCode);
+    await phone.getByRole('button', { name: 'Start rear camera' }).click();
+    await expect(phone.getByRole('status')).toHaveText('Live on your laptop. Keep this page open.', { timeout: 25000 });
+    await expect(camera.getByRole('button', { name: 'Disconnect phone', exact: true })).toBeVisible({ timeout: 15000 });
+    await expect.poll(() => phone.evaluate(() => (window as any).__syntheticStreams.length)).toBe(2);
+    expect((await laptop.evaluate(() => (window as any).ohmpath.request('testAudit'))).asks).toHaveLength(0);
     await camera.getByRole('button', { name: 'Disconnect phone', exact: true }).click();
     await expect.poll(() => phone.evaluate(() => (window as any).__syntheticStreams.every((stream: MediaStream) => stream.getTracks().every(track => track.readyState === 'ended'))), { timeout: 25000 }).toBe(true);
     await expect(camera.getByText('Overview camera is off')).toBeVisible();
     const final = await laptop.evaluate(() => (window as any).ohmpath.request('testPhoneAudit'));
     expect(final.active).toBe(false);
-    expect(final.tunnelStops).toBe(1);
+    expect(final.tunnelStops).toBe(0);
     expect(final.requests.every((value: string) => /^(GET \/(?:session|favicon.ico)?|POST \/(?:answer|stop))$/.test(value))).toBe(true);
     expect(errors).toEqual([]);
   } finally {

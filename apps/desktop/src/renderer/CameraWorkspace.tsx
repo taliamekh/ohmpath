@@ -584,7 +584,7 @@ export default function CameraWorkspace({ paused, onSnapshot, onActivity, guide,
       <p>Follow a selected feature in the chosen view. Frames stay on this computer; Ask sends a separate snapshot for circuit help.</p>
     </div>
 
-    <PhoneLiveCamera paused={paused} stopSignal={phoneStopSignal} onPreparing={preparePhone} onStream={acceptPhoneStream} />
+    <PhoneLiveCamera paused={paused} stopSignal={phoneStopSignal} resolution={overviewResolution} onPreparing={preparePhone} onStream={acceptPhoneStream} />
     <details className="camera-workspace-setup">
       <summary>Camera setup <span>{overviewEnabled ? selectedCameraName || "Overview connected" : "Overview off"} · {piConnected ? "Pi connected" : "Pi off"}</span></summary>
       <div className="camera-workspace-setup-grid">
