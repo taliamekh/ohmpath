@@ -179,13 +179,13 @@ async function exerciseCamera(page, ordinal, report) {
     report.focus_cycles += 1;
   }
   if (ordinal % 3 === 0) {
-    // This button selects one local still for review. Do not press the drawer's Ask button.
-    await camera.getByRole('button', { name: 'Ask about this view' }).click();
-    const review = camera.getByRole('complementary', { name: 'Photo help review' });
+    // This button selects one local still for the inline question workspace.
+    await camera.getByRole('button', { name: 'Ask question about circuit' }).click();
+    const review = camera.getByRole('region', { name: 'Ask question about circuit' });
     await review.getByText('Overview snapshot').first().waitFor({ state: 'visible' });
     await review.getByRole('button', { name: 'Remove Overview snapshot' }).click();
     await review.getByText('Start with an image').waitFor({ state: 'visible' });
-    await review.getByRole('button', { name: 'Back to camera' }).click();
+    await review.getByRole('button', { name: 'Close question workspace' }).click();
     report.snapshots_reviewed_removed += 1;
   }
 }
@@ -245,7 +245,7 @@ async function main() {
     await camera.getByText('Camera setup').click();
     await camera.getByRole('button', { name: 'Enable & list cameras' }).click();
     await camera.getByLabel('Camera device').selectOption('soak-canvas');
-    await camera.getByRole('button', { name: 'Connect selected' }).click();
+    await camera.getByRole('button', { name: 'Turn on overview' }).click();
     await camera.locator('video').waitFor({ state: 'visible' });
     await page.waitForFunction(() => {
       const video = document.querySelector('.camera-workspace-overview video');
@@ -323,7 +323,7 @@ async function main() {
       throw new Error('The guide was present but its outer cloth never animated at a fixed raster size.');
     // The app's Disconnect action must stop its stream before the renderer closes.
     await camera.getByRole('button', { name: 'Exit full screen' }).last().click();
-    await camera.getByRole('button', { name: 'Disconnect overview' }).click();
+    await camera.getByRole('button', { name: 'Turn off overview' }).click();
     const stopped = await page.evaluate(() => {
       const video = document.querySelector('.camera-workspace-overview video');
       const tracks = window.__ohmCameraSoak?.streams.flatMap(stream => stream.getVideoTracks()) || [];

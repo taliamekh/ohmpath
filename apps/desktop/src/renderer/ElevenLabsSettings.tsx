@@ -94,7 +94,7 @@ export default function ElevenLabsSettings({ onChanged }: { onChanged?: () => vo
         <option value="" disabled>Choose a voice · no preview</option>
         {connection.voices.map((voice) => <option key={voice.voice_id} value={voice.voice_id}>{voice.name}</option>)}
       </select>
-      <label className="preference-row"><span><strong>Enable spoken answers for this launch</strong><small>Listen buttons use ElevenLabs credits. Limited to 1,000 text characters and 1,000 conservatively reserved credits per launch; no automatic replies, retries, or top-ups.</small></span>
+      <label className="preference-row"><span><strong>Enable spoken answers for this launch</strong><small>Spoken replies use ElevenLabs credits. Limited to 1,000 text characters and 1,000 conservatively reserved credits per launch; no automatic retries or top-ups.</small></span>
         <input type="checkbox" checked={connection.generation_enabled} disabled={busy || !connection.selected_voice_id || connection.subscription?.overage_status !== "disabled"}
           onChange={event => void update("elevenLabsSetGenerationEnabled", { enabled: event.target.checked, characterBudget: 1000 }, event.target.checked ? "Spoken answers enabled. Use Listen beside an answer." : "Spoken answers stopped and disabled.")} /></label>
       <div className="runtime-row"><span>Characters left this launch</span><strong>{connection.remaining_session_characters ?? 0}</strong></div>
@@ -105,7 +105,7 @@ export default function ElevenLabsSettings({ onChanged }: { onChanged?: () => vo
       </div>
       {connection.subscription?.overage_status !== "disabled" && <p>Usage-based billing is not verified as disabled. Speech must remain blocked until that is resolved.</p>}
     </div>}
-    <p className="elevenlabs-credit-note">Speech starts only when you press Listen. Text is sent to ElevenLabs for that request. {selectedVoiceDescription}</p>
+    <p className="elevenlabs-credit-note">Replies are read aloud when “Read replies aloud” is checked, or when you press Listen. Answer text is sent to ElevenLabs. {selectedVoiceDescription}</p>
     {notice && <p role="status">{notice}</p>}
     {error && <p className="inline-error" role="alert">{error}</p>}
   </section>;

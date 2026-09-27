@@ -301,6 +301,8 @@ def test_shutdown_drops_completed_answers_and_followup_history():
     (ProofFailure("effective_config_not_restricted"), "effective_config_not_restricted", "Check the configuration"),
     (ProofFailure("cannot_disable_inherited_mcp"), "cannot_disable_inherited_mcp", "Check the configuration"),
     (ProofFailure("turn_timeout"), "turn_timeout", "timed out"),
+    (ProofFailure("app_server_closed"), "app_server_closed", "connection closed"),
+    (ProofFailure("app_server_read_failed"), "app_server_read_failed", "could not read"),
     (RuntimeError("secret C:\\private\\token-123"), "photo_help_failed", "Please retry"),
 ])
 def test_photo_failures_are_actionable_or_generic_without_retained_answer(failure, expected_code, expected_message):

@@ -14,13 +14,18 @@ const root = process.env.OHMPATH_REPLAY_ROOT;
 const imageId = '10000000-0000-4000-8000-000000000001';
 const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=';
 const audit = { asks: 0, transcriptions: 0, microphoneEnables: 0,
-  microphoneDisables: 0, speaks: [], cancels: [], speechEvents: 0, unexpected: [] };
+  microphoneDisables: 0, speaks: [], cancels: [], speechEvents: 0, unexpected: [], captures: [] };
+let piConnected = false;
 let window;
 let currentSpeech = null;
 function handle(event, action, payload = {}) {
   if (action === 'health') return { status: 'ready', hardware: 'disabled', reasoning: 'subscription_on_request' };
   if (action === 'sessions') return [];
   if (action === 'turretStatus') return { enabled: false, connected: false, motion_enabled: false, laser_enabled: false };
+  if (action === 'motionStatus' || action === 'motionKeepalive') return { connected: piConnected, armed: false };
+  if (action === 'motionConnect') { piConnected = true; return { connected: true, armed: false }; }
+  if (action === 'motionDisconnect') { piConnected = false; return { connected: false, armed: false }; }
+  if (action === 'motionFrame') return { frame: piConnected ? { jpeg_base64: require('electron').nativeImage.createFromBitmap(Buffer.alloc(640 * 360 * 4, 200), { width: 640, height: 360 }).toJPEG(80).toString('base64'), sequence: Date.now() } : null };
   if (action === 'voiceStatus') return { provider: 'offline fixture', model: 'synthetic', status: 'installed', local_only: true, recording: false };
   if (action === 'elevenLabsStatus') return { connected: true, generation_enabled: true,
     remaining_session_characters: 1000, remaining_session_credits: 1000, provider_remaining_credits: 1000, spending_blocked: false,
@@ -39,8 +44,15 @@ function handle(event, action, payload = {}) {
   }
   if (action === 'photoChooseImage') return { image: { image_id: imageId, name: 'Synthetic circuit.png',
     data_url: 'data:image/png;base64,' + png, width: 1, height: 1 } };
+  if (action === 'photoImportCapture') {
+    audit.captures.push({ source: payload.source, captured_at: payload.captured_at });
+    return { image: { image_id: '10000000-0000-4000-8000-000000000002', name: 'Current Pi snapshot',
+      data_url: payload.data_url, width: 640, height: 360 } };
+  }
   if (action === 'photoAsk') {
     audit.asks += 1;
+    audit.lastQuestion = payload.question;
+    audit.lastImages = payload.image_ids;
     audit.contextId = payload.context_id;
     return { status: 'running', turn_id: '20000000-0000-4000-8000-000000000001',
       context_id: payload.context_id, image_revision: 'offline-replay' };
@@ -53,6 +65,7 @@ function handle(event, action, payload = {}) {
   if (action === 'photoCancel') return { status: 'cancelled' };
   if (action === 'photoReleaseImage') return { released: true };
   if (action === 'phonePhotoStatus') return { active: false, accepting: false, interfaces: [] };
+  if (action === 'phoneLiveStatus') return { active: false, state: 'idle', session_id: '' };
   if (action === 'phonePhotoSetAccepting') return { accepting: false };
   if (action === 'elevenLabsSpeak') {
     currentSpeech = payload.request_id;
@@ -160,7 +173,7 @@ const fakeAudio = String.raw`
 })();
 `;
 
-test('offline photo voice controls keep transcripts as drafts and stop synthetic audio', async () => {
+test('photo drafts and live spoken questions produce bounded speech without a measurement session', async () => {
   const requireElectron = createRequire(resolve('package.json'));
   const directory = await mkdtemp(join(tmpdir(), 'ohmpath-photo-voice-'));
   const mainPath = join(directory, 'voice-replay-main.cjs');
@@ -218,7 +231,7 @@ test('offline photo voice controls keep transcripts as drafts and stop synthetic
     await page.getByRole('button', { name: 'Ask about these images' }).click();
     await expect(page.locator('.photo-help-explanation')).toHaveText('Synthetic replay explanation.');
     expect((await audit()).asks).toBe(1);
-    await page.getByRole('button', { name: 'Listen to answer' }).click();
+    // Enabled speech now reads a completed answer automatically, once.
     await expect.poll(async () => (await audit()).speaks.length).toBe(1);
     await page.evaluate(() => (window as any).ohmpath.request('testEmitSyntheticSpeech'));
     await expect(page.getByText('Frieren is speaking')).toBeVisible();
@@ -227,6 +240,27 @@ test('offline photo voice controls keep transcripts as drafts and stop synthetic
     await expect(page.getByRole('button', { name: 'Stop speaking' })).toHaveCount(0);
     expect((await audit()).cancels).toContain((await audit()).speaks[0].id);
     expect((await synthetic()).sourceStops).toBeGreaterThan(0);
+
+    await page.getByRole('button', { name: 'Live help', exact: false }).first().click();
+    await page.getByRole('button', { name: 'Turn on Turret', exact: true }).click();
+    await expect(page.getByRole('button', { name: 'Talk to helper' })).toBeEnabled();
+    const recordedBefore = (await synthetic()).frames;
+    await page.getByRole('button', { name: 'Talk to helper' }).click();
+    await expect.poll(async () => (await synthetic()).frames).toBeGreaterThan(recordedBefore);
+    await page.getByRole('button', { name: 'Finish and open Photo help' }).click();
+    await expect(page.getByLabel('What would you like help with?')).toHaveValue('Where is the ground connection?');
+    await page.getByRole('button', { name: 'Ask about these images' }).click();
+    await expect(page.locator('.photo-help-explanation')).toHaveText('Synthetic replay explanation.');
+    await expect.poll(async () => (await audit()).speaks.length).toBe(2);
+    const live = await audit();
+    expect(live.asks).toBe(2);
+    expect(live.lastQuestion).toBe('Where is the ground connection?');
+    expect(live.lastImages).toEqual(['10000000-0000-4000-8000-000000000002']);
+    expect(live.captures).toHaveLength(1);
+    expect(live.captures[0].source).toBe('pi');
+    expect(Date.now() - live.captures[0].captured_at).toBeLessThan(10000);
+    expect(live.speaks.every(item => item.text.length <= 1000)).toBe(true);
+    expect((await synthetic()).activeTracks).toBe(0);
     expect((await audit()).unexpected).toEqual([]);
     await page.close();
     await expect.poll(() => desktop.exitCode, { timeout: 8000 }).toBe(0);

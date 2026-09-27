@@ -110,7 +110,7 @@ export default function VisionOverlay({ enabled, source, getFrame, region = WHOL
     if (!canvas || !enabled) return;
     function paint() {
       if (!canvas) return;
-      const box = canvas.getBoundingClientRect();
+      const box = { width: canvas.clientWidth, height: canvas.clientHeight };
       const ratio = Math.min(window.devicePixelRatio || 1, 2);
       canvas.width = Math.round(box.width * ratio); canvas.height = Math.round(box.height * ratio);
       const painter = canvas.getContext("2d");
@@ -152,9 +152,10 @@ export default function VisionOverlay({ enabled, source, getFrame, region = WHOL
       onClick={event => {
         const frame = latest.current();
         if (!frame) return;
-        const [width, height] = dimensions(frame.media), box = event.currentTarget.getBoundingClientRect();
+        const [width, height] = dimensions(frame.media);
+        const box = { width: event.currentTarget.clientWidth, height: event.currentTarget.clientHeight };
         const fitted = framedImageBox(box.width, box.height, width, height, region);
-        const point = pointInFrame(event.clientX - box.left, event.clientY - box.top, fitted, region);
+        const point = pointInFrame(event.nativeEvent.offsetX, event.nativeEvent.offsetY, fitted, region);
         if (point) select(point);
       }} />
     <div className="vision-overlay-status" aria-live="polite">

@@ -89,5 +89,11 @@ export default function useElevenLabsSpeech(onState: (speaking: boolean) => void
     }).finally(() => { void refresh(); });
   }, [available, refresh, stop]);
 
-  return { available, pending, speak, stop, refresh };
+  const prepare = useCallback(() => {
+    if (available) void player.current?.prepare().catch(() => {
+      callbacks.current.onError("Audio output could not be opened. The written answer will still be available.");
+    });
+  }, [available]);
+
+  return { available, pending, speak, stop, refresh, prepare };
 }

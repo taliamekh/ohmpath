@@ -27,9 +27,9 @@ test('fixed character pose keeps its head and waist anchored through long animat
     const context = browser.contexts()[0];
     const page = context.pages()[0] || await context.waitForEvent('page', { timeout: 12000 });
     page.setDefaultTimeout(12000);
-    const canvas = page.locator('.bench-guide-card .frieren-guide canvas');
+    const canvas = page.locator('.camera-workspace-focus-guide .frieren-guide canvas');
     await expect(canvas).toBeVisible();
-    await expect(page.locator('.bench-guide-card .frieren-guide')).toHaveAttribute('data-expression', 'neutral');
+    await expect(page.locator('.camera-workspace-focus-guide .frieren-guide')).toHaveAttribute('data-expression', 'neutral');
     const initialBox = await canvas.boundingBox();
     expect(initialBox).not.toBeNull();
 
@@ -51,7 +51,7 @@ test('fixed character pose keeps its head and waist anchored through long animat
     let result;
     try {
       result = await page.evaluate(async () => {
-        const element = document.querySelector('.bench-guide-card .frieren-guide canvas') as HTMLCanvasElement;
+        const element = document.querySelector('.camera-workspace-focus-guide .frieren-guide canvas') as HTMLCanvasElement;
         const context = element?.getContext('2d');
         if (!context) throw new Error('Character canvas is unavailable.');
         const regions = {
@@ -206,7 +206,7 @@ test('camera focus remounts keep fixed pixels through accelerated long animation
     await camera.getByText('Camera setup').click();
     await camera.getByRole('button', { name: 'Enable & list cameras' }).click();
     await camera.getByLabel('Camera device').selectOption('phase-canvas');
-    await camera.getByRole('button', { name: 'Connect selected' }).click();
+    await camera.getByRole('button', { name: 'Turn on overview' }).click();
     await expect.poll(() => camera.locator('video').evaluate((video: HTMLVideoElement) => video.videoWidth)).toBeGreaterThan(0);
     await camera.getByRole('button', { name: 'Full screen', exact: true }).click();
 
@@ -289,7 +289,7 @@ test('camera focus remounts keep fixed pixels through accelerated long animation
     expect(outerHashes.size).toBeGreaterThan(1);
     expect((await page.evaluate(() => (window as any).ohmpath.request('testAudit'))).modelCalls).toBe(0);
     await camera.getByRole('button', { name: 'Exit full screen' }).last().click();
-    await camera.getByRole('button', { name: 'Disconnect overview' }).click();
+    await camera.getByRole('button', { name: 'Turn off overview' }).click();
     expect(await page.evaluate(() => (window as any).__cameraPhaseStop())).toBe(true);
     await page.close();
     await expect.poll(() => desktop.exitCode, { timeout: 8000 }).toBe(0);

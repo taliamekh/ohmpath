@@ -20,6 +20,10 @@ SOURCE_FILES = {
     "ohmpath_pi/models.py",
     "ohmpath_pi/service.py",
     "ohmpath_pi/video_server.py",
+    "ohmpath_pi/pwm.py",
+    "ohmpath_pi/motion_state.py",
+    "ohmpath_pi/motion_worker.py",
+    "ohmpath_pi/camera_worker.py",
 }
 EXPECTED_FILES = SOURCE_FILES | {"README.md", "MANIFEST.sha256"}
 

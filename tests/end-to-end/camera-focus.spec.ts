@@ -55,7 +55,7 @@ test('camera focus keeps a synthetic preview mounted through snapshot and review
     await camera.getByText('Camera setup').click();
     await camera.getByRole('button', { name: 'Enable & list cameras' }).click();
     await camera.getByLabel('Camera device').selectOption('replay-canvas');
-    await camera.getByRole('button', { name: 'Connect selected' }).click();
+    await camera.getByRole('button', { name: 'Turn on overview' }).click();
     await expect.poll(() => video!.evaluate((node: HTMLVideoElement) => node.videoWidth)).toBeGreaterThan(0);
     await expect(camera.getByText('Overview camera is off')).toHaveCount(0);
     const liveStream = await video!.evaluate((node: HTMLVideoElement) => node.srcObject instanceof MediaStream && node.srcObject.getVideoTracks()[0]?.readyState === 'live');
@@ -68,14 +68,14 @@ test('camera focus keeps a synthetic preview mounted through snapshot and review
     await expect(camera.getByRole('img', { name: /Frieren/ })).toBeVisible();
     await expect(camera.getByRole('button', { name: 'Pause previews' })).toBeVisible();
     await expect(camera.getByRole('button', { name: 'Subtitles on' })).toHaveAttribute('aria-pressed', 'true');
-    await expect(camera.getByRole('button', { name: 'Ask about this view' })).toBeEnabled();
+    await expect(camera.getByRole('button', { name: 'Take photo for Photo help' })).toBeEnabled();
     const audit = () => page.evaluate(() => (window as any).ohmpath.request('testAudit'));
     expect((await audit()).asks).toHaveLength(0);
-    await camera.getByRole('button', { name: 'Ask about this view' }).click();
-    const review = camera.getByRole('complementary', { name: 'Photo help review' });
+    await camera.getByRole('button', { name: 'Take photo for Photo help' }).click();
+    const review = page.getByRole('region', { name: 'Selected image' });
     await expect(review.getByText('Overview snapshot').first()).toBeVisible();
     expect(await video!.evaluate((node) => node.isConnected && (node as HTMLVideoElement).srcObject instanceof MediaStream)).toBe(true);
-    expect(await camera.evaluate((workspace) => document.fullscreenElement === workspace || workspace.classList.contains('is-fallback-focus'))).toBe(true);
+    expect(await camera.evaluate((workspace) => document.fullscreenElement === workspace || workspace.classList.contains('is-fallback-focus'))).toBe(false);
     expect((await audit()).captures).toHaveLength(1);
     expect((await audit()).asks).toHaveLength(0);
     await review.locator('label', { hasText: 'What would you like help with?' }).click();
@@ -83,30 +83,18 @@ test('camera focus keeps a synthetic preview mounted through snapshot and review
     await review.getByLabel('What would you like help with?').fill('Where is the red pad?');
     await review.getByRole('button', { name: 'Ask about these images' }).click();
     await expect(review.locator('.photo-help-explanation')).toHaveText('Replay explanation for Where is the red pad?');
-    await expect(camera.getByLabel('Camera subtitles')).toHaveText('Replay explanation for Where is the red pad? Inspect the marked area.');
-    const reviewBounds = await review.boundingBox();
-    const toggleBounds = await review.getByRole('button', { name: 'Back to camera' }).boundingBox();
-    const captionBounds = await camera.getByLabel('Camera subtitles').boundingBox();
-    expect(reviewBounds && toggleBounds && captionBounds).toBeTruthy();
-    expect(toggleBounds!.y).toBeGreaterThanOrEqual(reviewBounds!.y - 1);
-    expect(captionBounds!.x).toBeGreaterThanOrEqual(reviewBounds!.x + reviewBounds!.width - 2);
     expect((await audit()).asks).toHaveLength(1);
     expect((await audit()).modelCalls).toBe(0);
+    const scrollState = await page.locator('.scroll-area').evaluate((area: HTMLElement) => {
+      const before = area.scrollTop;
+      area.scrollTop = Math.min(area.scrollHeight, before + 240);
+      return { scrollable: area.scrollHeight > area.clientHeight, moved: area.scrollTop > before };
+    });
+    expect(scrollState.scrollable).toBe(true);
+    expect(scrollState.moved).toBe(true);
     await page.screenshot({ path: 'runtime/camera-focus.png' });
 
-    const longQuestion = `Explain ${'the marked practice part '.repeat(80)}`;
-    await review.getByLabel('What would you like help with?').fill(longQuestion);
-    await review.getByRole('button', { name: 'Ask about these images' }).click();
-    await expect(camera.getByLabel('Camera subtitles')).toContainText(longQuestion);
-    const scrollableCaption = await camera.getByLabel('Camera subtitles').evaluate((node) =>
-      ({ scrollable: node.scrollHeight > node.clientHeight, keyboardFocus: node.tabIndex === 0 }));
-    expect(scrollableCaption).toEqual({ scrollable: true, keyboardFocus: true });
-    await camera.getByRole('button', { name: 'Subtitles on' }).click();
-    await expect(camera.getByRole('button', { name: 'Subtitles off' })).toHaveAttribute('aria-pressed', 'false');
-    await expect(camera.getByLabel('Camera subtitles')).toHaveCount(0);
-
-    await page.keyboard.press('Escape');
-    await expect(camera).not.toHaveClass(/is-focused/);
+    await page.getByRole('navigation', { name: 'Workspace' }).getByRole('button', { name: 'Live help' }).click();
     expect(await video!.evaluate((node) => node.isConnected)).toBe(true);
     expect(await video!.evaluate((node: HTMLVideoElement) => node.srcObject instanceof MediaStream)).toBe(true);
     await expect(camera.getByRole('button', { name: 'Full screen', exact: true })).toBeVisible();
@@ -128,6 +116,8 @@ test('camera focus keeps a synthetic preview mounted through snapshot and review
     expect(await page.evaluate(() => document.body.style.overflow)).toBe(previousOverflow);
     expect(await page.locator('.sidebar').evaluate(sidebar => sidebar.inert)).toBe(false);
 
+    await page.getByRole('button', { name: 'Photo help', exact: false }).first().click();
+    await expect(review.getByText('Overview snapshot').first()).toBeVisible();
     await review.getByLabel('What would you like help with?').fill('late request');
     await review.getByRole('button', { name: 'Ask about these images' }).click();
     await expect.poll(async () => (await audit()).latePending).toBe(true);
@@ -137,8 +127,8 @@ test('camera focus keeps a synthetic preview mounted through snapshot and review
       item.context_id === lateContext)).toBe(true);
     await page.evaluate(() => (window as any).ohmpath.request('testResolveLateAsk'));
     await page.getByRole('button', { name: 'Live help', exact: false }).first().click();
-    await expect(page.locator('.bench-guide-card').getByRole('img', { name: 'Frieren · thinking' })).toHaveCount(0);
-    await expect(page.locator('.bench-guide-card').getByRole('img', { name: 'Frieren · neutral' })).toBeVisible();
+    await expect(page.locator('.camera-workspace-focus-guide').getByRole('img', { name: 'Frieren · thinking' })).toHaveCount(0);
+    await expect(page.locator('.camera-workspace-focus-guide').getByRole('img', { name: 'Frieren · neutral' })).toBeVisible();
     expect((await audit()).unexpected).toEqual([]);
     await page.close();
     await expect.poll(() => desktop.exitCode, { timeout: 8000 }).toBe(0);

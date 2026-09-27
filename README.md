@@ -4,6 +4,8 @@ A live electronics bench assistant that sees the circuit, listens to the person,
 
 **Status: runnable Windows desktop development build.** Local circuit simulation, explicit measurement readback, local speech recognition, evidence history, camera selection, assembly/firmware guidance, and a simulated two-axis pointer are implemented. Hardware acceptance and the complete product checklist remain pending. See the [handoff report](docs/development/morning-report.md) for launch steps, actual verification and limitations.
 
+The [Turret workspace](docs/development/turret-control.md) adds explicitly enabled Pi 5 pan/tilt control, a live camera, saved home/travel limits and measured camera-point alignment. **Find circuit and guide me** starts a bounded circuit search, framing, visual diagnosis and pointing sequence. A diagnosis answer can hand its suggested checks to this flow. The two-wire laser is externally powered; the app neither controls nor senses its power. Physical end-to-end aiming acceptance is still pending.
+
 The [afternoon handoff](docs/development/afternoon-report.md) records the latest countryside theme, simplified logo, expressive guide, fullscreen/subtitles, Photo help and silent verification follow-up.
 
 The [theme refinement](docs/development/theme-refinement.md) records the wooden signpost navigation, Live help name, complete panel palette and localized blink/breathing corrections.
@@ -56,13 +58,13 @@ Setup uses the pinned dependency locks and pnpm 11.25.0. `python scripts/setup.p
 
 Start in **Live help**, or choose **Photo help** to upload a circuit photo or diagram without a camera or turret. Ask explicitly to send the selected images through the signed-in subscription. Camera previews start only after connection; analysis uses the snapshot you choose, not continuous unattended capture.
 
-In Live help, **Track a point locally** lets you select a textured detail in the chosen camera view. A ring follows that image feature while it remains visible; an unclear or lost match clears the ring and requires selection again. These frames stay on the computer. This is image tracking, not automatic component identification, an electrical measurement, or calibrated turret aiming. **Ask about this view** separately sends a snapshot for circuit reasoning.
+In Live help, **Track a point locally** lets you select a textured detail in the chosen camera view. A ring follows that image feature while it remains visible; an unclear or lost match clears the ring and requires selection again. These frames stay on the computer. This is image tracking, not automatic component identification, an electrical measurement, or calibrated turret aiming. Turn on the overview camera and choose **Take photo for Photo help** to move a fresh snapshot into the standalone question workspace.
 
 In Photo help, **Send a photo from your phone** creates a 15-minute QR link on a selected private network. Keep both devices on trusted Wi-Fi; review the image on the phone before Send and on the laptop before Ask. This local HTTP transfer is unencrypted. USB live video separately uses Camo Studio and Camo Camera on the iPhone. Selecting Camo alone does not establish that its source is the iPhone.
 
 **Start recording / Finish recording** transcribes a short question locally into the editable draft. It never asks automatically. In Settings, optionally enable ElevenLabs spoken answers for the current launch; **Listen** sends that answer text to ElevenLabs and uses credits. The launch limit is 1,000 text characters, speech starts off after relaunch, and Stop speaking cancels pending playback. The currently selected stock voice is not an exact anime performance.
 
-Use **Full screen** to hide navigation and place Frieren at the bottom-right. **Subtitles on/off** also works without audio; the preference is available in Settings and survives relaunch. Snapshot questions open inside the camera workspace. **Back to camera** hides the review drawer while keeping your question and preview available. Press Escape to leave fullscreen, or **Pause previews** to stop capture.
+Use **Full screen** to hide navigation and place Frieren at the bottom-right. **Subtitles on/off** also works without audio; the preference is available in Settings and survives relaunch. Photo questions stay in the standalone Photo help workspace, so the camera page remains a preview and capture surface. Press Escape to leave fullscreen, or **Pause previews** to stop capture.
 
 Under **Measurements and circuit tools**, create a practice bench, choose a fixture, and run the local solve. Review the declared setup before starting a measurement request. Enter a signed value with units, check its complete readback and explicitly confirm it. Practice inputs remain labeled simulated user input, distinct from physical measurements.
 
@@ -72,7 +74,7 @@ The subscription investigator requires the existing signed-in Codex CLI version 
 
 ## Available tools in the interface
 
-- **Live help:** large overview/Pi views, explicit snapshot questions and Frieren. Expand **Measurements and circuit tools** for practice/manual sessions, reviewed KiCad import, actual ngspice, signed readings, readback/confirmation, corrections, fault comparisons and local report export. Manual confirmation records what the user reports; it does not verify the instrument.
+- **Live help:** large overview/Pi views, overview-photo handoff to Photo help and Frieren. Expand **Measurements and circuit tools** for practice/manual sessions, reviewed KiCad import, actual ngspice, signed readings, readback/confirmation, corrections, fault comparisons and local report export. Manual confirmation records what the user reports; it does not verify the instrument.
 - **Photo help:** upload or explicitly paste up to three circuit photos or diagrams, with short answers, follow-up questions and image annotations, without a camera or turret. Images and completed replies stay in memory across page changes; Clear workspace releases them. Only Ask sends images. Quitting/reloading discards the temporary workspace. Photo reasoning has no practice graph or model tools. It cannot confirm measurements or operate devices.
 - **Circuit and firmware tools** (inside the expanded bench tools): logical assembly guidance, supplied firmware-log analysis and the evidence-backed circuit investigator. Historical Circuit lab source/templates remain preserved; its menu was replaced at the user's request.
 - **Devices:** an explicitly selected local overview camera, optional authenticated Pi camera preview through an already prepared SSH tunnel, offline yaw/pitch calibration candidates, and a synthetic aiming animation. Both actual camera feeds and physical calibration remain unverified.

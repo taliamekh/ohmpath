@@ -1,0 +1,13 @@
+{
+  "fixture_id": "educational_nmos_switch_v1",
+  "model_id": "ohmpath.educational-level1-nmos.v1",
+  "evidence_type": "ngspice_simulation_only",
+  "cases": {
+    "healthy": {"low": {"gate": "low", "drain": "high", "current": "low"}, "high": {"gate": "high", "drain": "low", "current": "high"}},
+    "gate_disconnected": {"low": {"gate": "low", "drain": "high", "current": "low"}, "high": {"gate": "low", "drain": "high", "current": "low"}},
+    "load_open": {"low": {"gate": "low", "drain": "low", "current": "low"}, "high": {"gate": "high", "drain": "low", "current": "low"}},
+    "device_open": {"low": {"gate": "low", "drain": "high", "current": "low"}, "high": {"gate": "high", "drain": "high", "current": "low"}},
+    "device_shorted": {"low": {"gate": "low", "drain": "low", "current": "high"}, "high": {"gate": "high", "drain": "low", "current": "high"}}
+  },
+  "thresholds": {"gate_low_v": 0.05, "gate_high_v": 3.2, "drain_low_v": 0.2, "drain_high_v": 3.2, "current_low_a": 0.000001, "current_high_a": 0.003}
+}

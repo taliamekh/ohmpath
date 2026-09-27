@@ -1,4 +1,6 @@
 .photo-help-page { max-width: 1320px; margin: 0 auto; color: var(--text); }
+.photo-help-guide { position: fixed; right: 18px; bottom: 16px; z-index: 4; pointer-events: none; filter: drop-shadow(0 8px 18px #000b); }
+.photo-help-guide .frieren-guide { width: clamp(92px, 10vw, 142px); height: clamp(130px, 15vw, 205px); }
 .photo-help-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; margin: 1px 0 21px; }
 .photo-help-heading h1 { margin: 5px 0 8px; font: 700 clamp(27px, 3vw, 37px)/1.08 var(--display); letter-spacing: -.9px; }
 .photo-help-heading h1 span { color: var(--teal); font-size: .56em; vertical-align: 9px; }
@@ -63,7 +65,20 @@
 .photo-help-answer h2 { margin: 8px 0 11px; color: #f3faf8; font: 600 19px/1.35 var(--display); }
 .photo-help-explanation { max-width: 850px; margin: 0; color: #c6d9d9; font-size: 13px; line-height: 1.65; white-space: pre-wrap; }
 .photo-help-steps { margin-top: 18px; padding: 14px 16px; border: 1px solid #2c514b; border-radius: 6px; background: #102722; }
+.photo-help-limits { margin-top: 14px; padding: 12px 15px; border: 1px solid #755d3b; border-radius: 6px; background: #302619; color: #f3dec0; }
+.photo-help-limits strong { font-size: 11px; }
+.photo-help-limits ul { display: grid; gap: 6px; margin: 8px 0 0; padding-left: 18px; font-size: 11px; line-height: 1.5; }
 .photo-help-steps > strong { color: #9de3ca; font-size: 11px; }
+.photo-help-steps > p { color: #ecf5ef; font-size: 13px; line-height: 1.6; }
+.photo-help-steps > ul { margin: 8px 0 15px; padding-left: 19px; color: #cbded9; font-size: 11px; line-height: 1.6; }
+.photo-help-steps details { margin: 13px 0; color: #adcbc0; font-size: 11px; }
+.photo-help-steps summary { cursor: pointer; }
+.photo-help-steps details p { margin: 9px 0; }
+.photo-help-test-result { display: grid; gap: 9px; margin-top: 17px; padding-top: 15px; border-top: 1px solid #356258; }
+.photo-help-test-result label { color: #d9f2e8; font-size: 12px; font-weight: 700; }
+.photo-help-test-result textarea { width: 100%; resize: vertical; padding: 10px; border: 1px solid #4c8072; border-radius: 5px; background: #0b1c25; color: #eef8f4; font: 12px/1.5 var(--display); }
+.photo-help-test-result p { margin: 0; color: #adcbc0; font-size: 10px; }
+.photo-help-test-result .button { justify-self: start; }
 .photo-help-steps ol { display: grid; gap: 7px; margin: 9px 0 0; padding-left: 20px; color: #cbded9; font-size: 11px; line-height: 1.55; }
 .photo-help-steps li::marker { color: #75d4b6; font: 600 10px var(--mono); }
 .photo-help-listen { margin-top: 15px; }
@@ -77,3 +92,4 @@
 .photo-help-recent p { margin: 9px 0 2px; line-height: 1.5; }
 @media (max-width: 1000px) { .photo-help-layout { grid-template-columns: 1fr; } .photo-help-side { grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; } }
 @media (max-width: 670px) { .photo-help-heading { display: block; } .photo-help-private { display: inline-flex; margin-top: 12px; } .photo-help-side { grid-template-columns: 1fr; } .photo-help-visual-foot { align-items: flex-start; flex-direction: column; gap: 3px; } .photo-help-scroll { min-height: 250px; } .photo-help-empty { min-height: 300px; } }
+@media (max-width: 600px) { .photo-help-guide { right: 8px; bottom: 10px; } .photo-help-guide .frieren-guide { width: 88px; height: 122px; } }

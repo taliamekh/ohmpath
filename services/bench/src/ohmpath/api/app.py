@@ -213,6 +213,10 @@ def create_app(data_dir: Path, user_token: str, model_token: str | None = None) 
     from ohmpath.vision.tracking import VisualTracker
     vision_tracker = VisualTracker()
     vision_admission = threading.BoundedSemaphore(1)
+    from ohmpath.devices.turret import Turret
+    from ohmpath.devices.turret_targets import ComponentIdentifier
+    from ohmpath.api.turret import router as turret_router
+    turret = Turret(data_dir, identifier=ComponentIdentifier(photo_help, investigations, investigation_admission))
 
     def accepted_graph(state):
         if state.get("imported_graph") is not None:
@@ -226,6 +230,7 @@ def create_app(data_dir: Path, user_token: str, model_token: str | None = None) 
     @asynccontextmanager
     async def lifespan(app):
         yield
+        turret.close()
         investigations.close()
         photo_help.close()
         speech.close()
@@ -236,6 +241,7 @@ def create_app(data_dir: Path, user_token: str, model_token: str | None = None) 
     app.state.investigations = investigations
     app.state.photo_help = photo_help
     app.state.vision_tracker = vision_tracker
+    app.state.turret = turret
 
     def role(authorization: str = Header(default="")):
         if authorization.startswith("Bearer "):
@@ -254,6 +260,8 @@ def create_app(data_dir: Path, user_token: str, model_token: str | None = None) 
     def model_scope(actor=Depends(role)):
         if actor != "model":
             raise DomainError("capability_denied", "This endpoint requires the model-only capability.", 403)
+
+    app.include_router(turret_router(turret, user_scope))
 
     @app.exception_handler(DomainError)
     async def domain_error(request, error):
@@ -279,7 +287,7 @@ def create_app(data_dir: Path, user_token: str, model_token: str | None = None) 
 
     @app.get("/v1/health", dependencies=[Depends(role)])
     def health():
-        return {"name": "Ohm Path", "version": __version__, "status": "ready", "hardware": "disabled",
+        return {"name": "Ohm Path", "version": __version__, "status": "ready", "hardware": "manual_turret" if turret.status()['armed'] else "disabled",
                 "reasoning": "subscription_on_request" if investigations.base_url else "unavailable",
                 "voice": speech.status()["status"]}
 
@@ -364,6 +372,7 @@ def create_app(data_dir: Path, user_token: str, model_token: str | None = None) 
 
     @app.post("/v1/sessions/{sid}/pause", dependencies=[Depends(user_scope)])
     def pause(sid: str):
+        turret.disconnect()
         investigations.cancel(sid)
         def update(state, emit):
             cancel_pending(state)
@@ -373,6 +382,7 @@ def create_app(data_dir: Path, user_token: str, model_token: str | None = None) 
 
     @app.post("/v1/sessions/{sid}/fixture", dependencies=[Depends(user_scope)])
     def select_fixture(sid: str, body: FixtureInput):
+        turret.disconnect()
         investigations.cancel(sid)
         graph = load_fixture(body.name)
         def update(state, emit):
@@ -424,6 +434,7 @@ def create_app(data_dir: Path, user_token: str, model_token: str | None = None) 
 
     @app.post("/v1/sessions/{sid}/imports/accept", dependencies=[Depends(user_scope)])
     def accept_import(sid: str, body: ImportInput):
+        turret.disconnect()
         investigations.cancel(sid)
         def accept(current, emit):
             preview = current.get("pending_import")

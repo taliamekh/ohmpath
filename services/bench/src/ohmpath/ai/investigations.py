@@ -29,6 +29,8 @@ SAFE_FAILURE_MESSAGES = {
     "codex_executable_unavailable": "Ohm Path could not find or start the installed Codex program. Check the local Codex installation, then reopen Ohm Path.",
     "codex_config_unavailable": "The local signed-in Codex configuration is unavailable.",
     "turn_timeout": "The investigation reached its time limit without a validated answer. You can narrow the question and try again.",
+    "app_server_closed": "The Codex connection closed before the investigation finished. Your accepted readings are preserved. Retry the investigation.",
+    "app_server_read_failed": "Ohm Path could not read the Codex response. Your accepted readings are preserved. Reopen Ohm Path and retry.",
     "stale_or_unlinked_model_output": "The answer did not cite valid current evidence and was discarded. Review the circuit and retry.",
     "required_tool_loop_missing": "The investigation did not complete all required evidence checks, so its answer was discarded.",
     "invalid_model_output": "The response did not pass the evidence format checks and was discarded.",

@@ -26,7 +26,7 @@
   --display: "Segoe UI Variable Display", "Segoe UI", sans-serif;
 }
 
-.camera-guide-layout { display: grid; grid-template-columns: minmax(0, 1fr) 250px; gap: 18px; align-items: stretch; margin-bottom: 18px; }
+.camera-guide-layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: 18px; align-items: stretch; margin-bottom: 18px; }
 .camera-resume { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 10px 0; color: var(--soft); font-size: 12px; }
 .bench-guide-card { display: flex; flex-direction: column; align-items: center; padding: 22px 18px; text-align: center; overflow: hidden; }
 .bench-guide-card h2 { margin: 4px 0 8px; font-size: 24px; font-weight: 500; }
@@ -42,19 +42,12 @@
 .bench-advanced .workspace-grid { grid-template-columns: 1fr; }
 .guide-expression-preview { display: flex; flex-wrap: wrap; gap: 5px; justify-content: center; margin-top: 20px; }
 .guide-expression-preview figure { margin: 0; width: 105px; text-align: center; }
-.photo-guide-strip { display: flex; align-items: center; gap: 18px; margin: 0 0 20px; padding: 0 18px; min-height: 95px; overflow: hidden; }
-.photo-guide-strip > .frieren-guide { width: 68px; height: 95px; }
-.photo-guide-strip > div:nth-child(2) { flex: 1; min-width: 0; }
-.photo-guide-strip strong { font-size: 13px; }
-.photo-guide-strip strong span { color: var(--muted); font-size: 11px; font-weight: 400; margin-left: 12px; }
-.photo-guide-strip p { max-height: 54px; overflow: auto; margin: 7px 0; color: var(--soft); font-size: 12px; line-height: 1.5; }
-.photo-guide-strip > button { flex: 0 0 auto; }
 .guide-expression-preview figcaption { font-size: 11px; color: var(--soft); margin: 8px 0 12px; }
 .companion-center > .frieren-guide { height: 285px; width: 170px; margin: 0 auto; }
 .guide-float-body > .frieren-guide { height: 130px; width: 90px; }
 .guide-float-body > div:last-child { min-width: 0; }
 .guide-float-body > div:last-child small { max-height: 90px; overflow: auto; }
-@media (max-width: 1180px) { .camera-guide-layout { grid-template-columns: minmax(0, 1fr) 200px; } .bench-guide-card { padding: 18px 10px; } .bench-guide-card > .frieren-guide { width: 170px; height: 285px; } }
+@media (max-width: 1180px) { .bench-guide-card { padding: 18px 10px; } .bench-guide-card > .frieren-guide { width: 170px; height: 285px; } }
 @media (max-width: 900px) { .camera-guide-layout { grid-template-columns: 1fr; } .bench-guide-card > .frieren-guide { height: 220px; width: 140px; } }
 
 * { box-sizing: border-box; }
@@ -98,7 +91,7 @@ button:disabled { opacity: .48; cursor: not-allowed; }
 .practice-pill i { width: 5px; height: 5px; background: var(--amber); border-radius: 50%; }
 .practice-pill.manual-mode-pill { color: #9dd8c9; background: #142721; border-color: #31574d; }
 .practice-pill.manual-mode-pill i { background: #70c7a8; }
-.avatar-button { width: 29px; height: 29px; border: 1px solid #29414a; border-radius: 50%; background: #15313a; color: #9fe0d7; font: 600 11px var(--display); cursor: pointer; }
+.avatar-button { min-width: 29px; height: 29px; padding: 0 10px; border: 1px solid #29414a; border-radius: 15px; background: #15313a; color: #9fe0d7; font: 600 10px var(--display); cursor: pointer; }
 .scroll-area { position: relative; width: min(1400px, 100%); margin: 0 auto; padding: 26px 34px 32px; flex: 1; }
 .app-footer { display: flex; justify-content: space-between; padding: 12px 34px 15px; color: #546b76; font-size: 9px; border-top: 1px solid rgba(178,209,222,.06); }
 .page-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 22px; margin: 0 0 20px; }
@@ -368,6 +361,15 @@ button:disabled { opacity: .48; cursor: not-allowed; }
 .toast button { margin-left: auto; color: #81959a; background: transparent; border: 0; font-size: 19px; cursor: pointer; }
 
 .voice-card { display: flex; align-items: flex-start; gap: 13px; padding: 13px 16px; margin: 0 0 17px; background: linear-gradient(100deg,#11262e,#11212c); border-color: #27424b; }
+.voice-details { margin: 9px 0 17px; }
+.voice-details > summary { width: fit-content; color: var(--muted); cursor: pointer; font-size: 10px; }
+.voice-details[open] > summary { margin-bottom: 8px; }
+.camera-push-to-talk { display: inline-flex; align-items: center; gap: 6px; min-height: 30px; padding: 6px 9px; border: 1px solid #72968b; border-radius: 16px; background: #071713dc; color: #eff8ef; box-shadow: 0 3px 14px #0007; cursor: pointer; font: 600 10px/1 var(--display); backdrop-filter: blur(5px); }
+.camera-push-to-talk > span { color: #7bd2ae; font-size: 8px; }
+.camera-push-to-talk kbd { padding: 2px 5px; border: 1px solid #71877c; border-radius: 4px; background: #1f3029; color: #cad8cf; font: 8px var(--mono); }
+.camera-push-to-talk.is-listening { border-color: #e2857c; background: #3a1c1de8; }
+.camera-push-to-talk.is-listening > span { color: #ff9c92; }
+.camera-push-to-talk:disabled { cursor: default; opacity: .58; }
 .voice-orb { position: relative; display: grid; place-items: center; flex: 0 0 34px; width: 34px; height: 34px; margin-top: 2px; color: #79d8c7; border: 1px solid #34736c; border-radius: 50%; background: #153c3d; font-size: 18px; }
 .voice-orb i { position: absolute; right: -2px; bottom: 0; width: 7px; height: 7px; border: 1px solid #11262e; border-radius: 50%; background: #64d6b5; }
 .voice-content { min-width: 0; flex: 1; }
@@ -504,6 +506,10 @@ button:disabled { opacity: .48; cursor: not-allowed; }
 .registry-status.pending, .runtime-state.paused { color: #d6b471; }
 .runtime-state.safe { color: #8ad2bb; }
 .companion-settings-error { margin: 6px 0 0; color: #e69b91; font-size: 9px; line-height: 1.4; }
+.shortcut-setting { display: flex; align-items: center; gap: 6px; }
+.shortcut-setting button { min-width: 82px; padding: 6px 9px; border: 1px solid #446158; border-radius: 5px; background: #10241e; color: #cfe1d5; cursor: pointer; font-size: 9px; }
+.shortcut-setting button.is-capturing { border-color: #8dc5a6; color: #e8f7eb; }
+.shortcut-setting button.shortcut-clear { min-width: 0; border: 0; background: transparent; color: var(--muted); }
 .registry-note { padding: 10px; margin: 12px 0 0; color: #9a8b6e; background: #25241e; border: 1px solid #403b2d; border-radius: 5px; font-size: 9px; line-height: 1.45; }
 .runtime-panel { grid-column: 1; }
 

@@ -70,6 +70,11 @@ class FakeProtocol:
             assert "Write only the user-facing explanation field" in prompt
             assert "exact numbers and units" in prompt
             assert "Do not roleplay" in prompt
+            assert "ON, L, TX, and RX labels" in prompt
+            assert "A single photo cannot establish blinking or sustained absence" in prompt
+            assert "idle TX/RX and an unlit L do not prove a fault" in prompt
+            assert "glare, blur, low light, hands, wires, other objects" in prompt
+            assert "a practical next_step to uncover it" in prompt
             assert params["input"][2]["type"] == "localImage"
             return {"turn": {"id": "turn-1"}}
         if method == "turn/interrupt":

@@ -58,6 +58,24 @@ def test_allowance_failure_is_actionable_without_provider_details(tmp_path):
     store.close()
 
 
+@pytest.mark.parametrize("code", ["app_server_closed", "app_server_read_failed"])
+def test_reader_failure_is_reported_without_waiting_for_turn_timeout(tmp_path, code):
+    from ohmpath.ai.live_proof import ProofFailure
+
+    def fail(*args, **kwargs):
+        raise ProofFailure(code)
+
+    store, sid, service = manager(tmp_path, fail)
+    try:
+        turn = service.start(sid, "Why?")["turn_id"]
+        result = wait_job(service, sid, turn)
+        assert result["error"] == code
+        assert "accepted readings are preserved" in result["message"]
+    finally:
+        service.close()
+        store.close()
+
+
 def test_cancellation_does_not_accept_late_answer_or_start_duplicate(tmp_path):
     gate = threading.Event()
     done = threading.Event()

@@ -25,7 +25,7 @@ test('portrait phone circuit gets a reversible close-up while its complete snaps
     const context = browser.contexts()[0];
     const laptop = context.pages()[0] || await context.waitForEvent('page');
     const camera = laptop.getByRole('region', { name: 'Camera workspace' });
-    await camera.getByRole('button', { name: 'Connect phone camera', exact: true }).click();
+    await camera.getByRole('button', { name: 'Connect phone as camera', exact: true }).click();
     await expect(camera.getByRole('img', { name: 'Scan to connect your phone camera to Ohm Path' })).toBeVisible({ timeout: 20000 });
     await laptop.evaluate(() => (window as any).ohmpath.request('testPhoneOpen'));
     const phone = context.pages().find(page => page.url().startsWith('http://127.0.0.1:'))!;
@@ -67,10 +67,10 @@ test('portrait phone circuit gets a reversible close-up while its complete snaps
     expect(audit.captures).toHaveLength(0);
     expect(audit.asks).toHaveLength(0);
 
-    await camera.getByRole('button', { name: 'Ask about this view' }).click();
+    await camera.getByRole('button', { name: 'Take photo for Photo help' }).click();
     await expect.poll(async () => (await laptop.evaluate(() => (window as any).ohmpath.request('testAudit'))).captures.length).toBe(1);
     await expect(camera.locator('.camera-workspace-overview .camera-framing')).toHaveAttribute('data-focused', 'true');
-    const review = camera.getByRole('region', { name: 'Selected image' });
+    const review = laptop.getByRole('region', { name: 'Selected image' });
     const wrap = review.locator('.photo-help-image-wrap');
     await expect(wrap).toHaveAttribute('data-closeup', 'true');
     await expect(review.getByText('1080 × 1920', { exact: false })).toBeVisible();
@@ -89,26 +89,24 @@ test('portrait phone circuit gets a reversible close-up while its complete snaps
     expect(audit.captures[0]).toMatchObject({ source: 'overview', width: 1080, height: 1920 });
     expect(audit.asks).toHaveLength(0);
     expect(audit.modelCalls).toBe(0);
-    await camera.getByRole('button', { name: 'Back to camera', exact: true }).click();
     await laptop.screenshot({ path: resolve('runtime/circuit-closeup-preview.png'), animations: 'disabled', timeout: 10000 });
-    await camera.getByRole('button', { name: 'Continue this question', exact: true }).click();
 
     await review.getByRole('button', { name: 'Whole image' }).click();
     await expect(wrap).toHaveAttribute('data-closeup', 'false');
     await expect(photo).toBeVisible();
     await review.getByRole('button', { name: 'Circuit close-up' }).click();
+    await laptop.getByRole('navigation', { name: 'Workspace' }).getByRole('button', { name: 'Live help' }).click();
     await expect(wrap).toHaveAttribute('data-closeup', 'true');
-    await camera.getByRole('button', { name: 'Back to camera', exact: true }).click();
     await camera.getByRole('button', { name: 'Whole camera view' }).click();
     await expect(camera.locator('.camera-workspace-overview .camera-framing')).toHaveAttribute('data-focused', 'false');
-    await camera.getByRole('button', { name: 'Ask about this view' }).click();
+    await camera.getByRole('button', { name: 'Take photo for Photo help' }).click();
     await expect.poll(async () => (await laptop.evaluate(() => (window as any).ohmpath.request('testAudit'))).captures.length).toBe(2);
     await expect(camera.locator('.camera-workspace-overview .camera-framing')).toHaveAttribute('data-focused', 'false');
     await expect(wrap).toHaveAttribute('data-closeup', 'false');
     await expect(review.getByRole('button', { name: 'Whole image' })).toHaveCount(0);
-    await camera.getByRole('button', { name: 'Back to camera', exact: true }).click();
 
     // The manual picker must ignore blank letterbox space in the whole portrait view.
+    await laptop.getByRole('navigation', { name: 'Workspace' }).getByRole('button', { name: 'Live help' }).click();
     await camera.getByRole('button', { name: 'Choose close-up', exact: true }).click();
     const picker = camera.getByRole('button', { name: 'Choose the center of the circuit close-up' });
     const pickerBox = await picker.boundingBox();
@@ -121,25 +119,25 @@ test('portrait phone circuit gets a reversible close-up while its complete snaps
     const framing = camera.locator('.camera-workspace-overview .camera-framing-media');
     const manualBox = await framing.getAttribute('style');
     expect(manualBox).toBeTruthy();
-    await camera.getByRole('button', { name: 'Ask about this view' }).click();
+    await camera.getByRole('button', { name: 'Take photo for Photo help' }).click();
     await expect.poll(async () => (await laptop.evaluate(() => (window as any).ohmpath.request('testAudit'))).captures.length).toBe(3);
     await expect(framing).toHaveAttribute('style', manualBox!);
     await expect(wrap).toHaveAttribute('data-closeup', 'true');
-    await camera.getByRole('button', { name: 'Back to camera', exact: true }).click();
-    await camera.getByRole('button', { name: 'Ask about this view' }).click();
+    await laptop.getByRole('navigation', { name: 'Workspace' }).getByRole('button', { name: 'Live help' }).click();
+    await camera.getByRole('button', { name: 'Take photo for Photo help' }).click();
     await expect.poll(async () => (await laptop.evaluate(() => (window as any).ohmpath.request('testAudit'))).captures.length).toBe(4);
     await expect(framing).toHaveAttribute('style', manualBox!);
     await expect(wrap).toHaveAttribute('data-closeup', 'true');
     // The fourth snapshot exceeds the three-image review limit, but the local
     // framing and full-resolution capture still survive another Ask.
-    await expect(camera.getByRole('alert')).toContainText('Three images are already open.');
+    await expect(laptop.getByRole('alert')).toContainText('Three images are already open.');
     audit = await laptop.evaluate(() => (window as any).ohmpath.request('testAudit'));
     expect(audit.captures).toHaveLength(4);
     expect(audit.captures.every((capture: {width: number; height: number}) => capture.width === 1080 && capture.height === 1920)).toBe(true);
     expect(audit.asks).toHaveLength(0);
     expect(audit.modelCalls).toBe(0);
-    await camera.getByRole('button', { name: 'Back to camera', exact: true }).click();
-    await camera.getByRole('button', { name: 'Disconnect phone', exact: true }).click();
+    await laptop.getByRole('navigation', { name: 'Workspace' }).getByRole('button', { name: 'Live help' }).click();
+    await camera.getByRole('button', { name: 'Turn off overview', exact: true }).click();
     await expect.poll(() => phone.evaluate(() => (window as any).__closeupStreams.every((stream: MediaStream) =>
       stream.getTracks().every(track => track.readyState === 'ended'))), { timeout: 25000 }).toBe(true);
   } finally {

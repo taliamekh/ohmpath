@@ -30,6 +30,12 @@ export class SpeechPlayback {
 
   constructor(private readonly onPlaybackState: PlaybackCallback) {}
 
+  /** Unlock audio during Ask/Record; a later answer can use the same context. */
+  prepare(): Promise<void> {
+    if (!this.context || this.context.state === "closed") this.context = new AudioContext();
+    return this.context.resume();
+  }
+
   /** Call synchronously inside the user's click/key gesture, before requesting speech. */
   arm(requestId: string): void {
     if (!REQUEST_ID.test(requestId)) throw new Error("invalid_speech_request");
@@ -40,7 +46,7 @@ export class SpeechPlayback {
     this.bytes = 0;
     this.started = false;
     this.streamEnded = false;
-    this.ready = this.context.resume().then(() => undefined).catch(() => {
+    this.ready = this.prepare().catch(() => {
       if (this.requestId === requestId) this.fail("playback_unavailable");
     });
   }

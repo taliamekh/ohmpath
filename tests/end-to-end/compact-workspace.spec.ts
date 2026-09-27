@@ -35,7 +35,7 @@ test('compact offline workspaces keep camera and photo controls reachable', asyn
     await page.setViewportSize({ width: 980, height: 700 });
     const camera = page.getByRole('region', { name: 'Camera workspace' });
     await expect(camera.getByRole('button', { name: 'Full screen' })).toBeVisible();
-    await expect(camera.getByRole('button', { name: 'Ask about this view' })).toBeVisible();
+    await expect(camera.getByRole('button', { name: 'Take photo for Photo help' })).toBeVisible();
     await page.screenshot({ path: 'runtime/compact-camera-980.png' });
     expect((await widthAudit(page)).page).toBeLessThanOrEqual(981);
     await page.setViewportSize({ width: 784, height: 560 }); // 980 × 700 at 125% effective scale.
@@ -68,8 +68,18 @@ test('compact offline workspaces keep camera and photo controls reachable', asyn
     await page.getByRole('button', { name: 'Settings', exact: false }).first().click();
     await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible();
     expect((await widthAudit(page)).page).toBeLessThanOrEqual(785);
+    const shortcut = page.locator('.shortcut-preference');
+    await shortcut.getByRole('button', { name: 'Not set' }).click();
+    await page.keyboard.press('Space');
+    await expect(shortcut.getByRole('button', { name: 'Space' })).toBeVisible();
     await page.evaluate(() => { window.scrollTo(0, 0); document.querySelector('.scroll-area')?.scrollTo(0, 0); });
     await page.screenshot({ path: 'runtime/theme-settings-compact.png', timeout: 12000 });
+    await page.getByRole('navigation', { name: 'Workspace' }).getByRole('button', { name: 'Live help' }).click();
+    await page.getByText('Voice details and typed routing', { exact: true }).click();
+    await page.getByText('Test routing with typed text', { exact: false }).click();
+    const typedRouting = page.getByPlaceholder('Try: ‘I read 1.65 volts’ or ask a circuit question');
+    await typedRouting.pressSequentially('hello world');
+    await expect(typedRouting).toHaveValue('hello world');
     const audit = await page.evaluate(() => (window as any).ohmpath.request('testAudit'));
     expect(audit.modelCalls).toBe(0);
     await page.close();

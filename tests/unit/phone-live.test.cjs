@@ -86,6 +86,19 @@ test('one authenticated QR portal survives media stop and a new offer', async ()
   assert.equal(f.stopped(), 1);
 });
 
+test('phone camera portal can warm up once before a media offer', async () => {
+  const f = fixture();
+  try {
+    const warmed = await f.bridge.open();
+    assert.equal(warmed.link_available, true);
+    assert.equal(warmed.active, false);
+    assert.equal(f.calls(), 1);
+    const started = await f.bridge.start({ offer });
+    assert.equal(started.url, warmed.url);
+    assert.equal(f.calls(), 1);
+  } finally { await f.bridge.shutdown(); }
+});
+
 test('delayed answer and stop from old session cannot mutate replacement', async () => {
   const f = fixture();
   try {

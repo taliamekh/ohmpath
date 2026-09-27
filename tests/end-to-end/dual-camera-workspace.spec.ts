@@ -44,9 +44,21 @@ test('two synthetic camera paths preview together and snapshots use the selected
       const overview = document.createElement('canvas');
       overview.width = 640;
       overview.height = 360;
+      (window as any).__tiltBoard = false;
       const draw = overview.getContext('2d')!;
       let frame = 0;
       window.setInterval(() => {
+        if ((window as any).__tiltBoard) {
+          draw.fillStyle = '#344849'; draw.fillRect(0, 0, 640, 360);
+          draw.save(); draw.translate(320, 180); draw.rotate(17 * Math.PI / 180);
+          draw.fillStyle = '#c2c8ac'; draw.fillRect(-170, -105, 340, 210);
+          draw.fillStyle = '#354b42';
+          for (let y = -96; y < 97; y += 11) for (let x = -160; x < 161; x += 11) draw.fillRect(x, y, 4, 4);
+          draw.strokeStyle = '#29473f'; draw.lineWidth = 3;
+          for (let x = -150; x <= 150; x += 25) { draw.beginPath(); draw.moveTo(x, -95); draw.lineTo(x, 95); draw.stroke(); }
+          for (let y = -90; y <= 90; y += 22) { draw.beginPath(); draw.moveTo(-160, y); draw.lineTo(160, y); draw.stroke(); }
+          draw.restore(); return;
+        }
         draw.fillStyle = frame++ % 2 ? '#225a4f' : '#275f54';
         draw.fillRect(0, 0, 640, 360);
         draw.fillStyle = '#e5bd7e';
@@ -65,15 +77,13 @@ test('two synthetic camera paths preview together and snapshots use the selected
     await camera.getByText('Camera setup').click();
     await camera.getByRole('button', { name: 'Enable & list cameras' }).click();
     await camera.getByLabel('Camera device').selectOption('synthetic-overview');
-    await camera.getByRole('button', { name: 'Connect selected' }).click();
+    await camera.getByRole('button', { name: 'Turn on overview' }).click();
     const overviewVideo = camera.locator('video');
     const videoHandle = await overviewVideo.elementHandle();
     expect(videoHandle).not.toBeNull();
     await expect.poll(() => overviewVideo.evaluate((video: HTMLVideoElement) => video.videoWidth)).toBe(640);
-    await camera.getByLabel('Video token').fill('synthetic-pi-token');
-    await camera.getByRole('button', { name: 'Connect Pi camera' }).click();
-    await camera.getByRole('button', { name: 'Both' }).click();
-    const piFrame = camera.getByRole('img', { name: 'Latest Raspberry Pi camera frame' });
+    await camera.getByRole('button', { name: 'Turn on Turret' }).click();
+    const piFrame = camera.getByRole('img', { name: 'Latest Turret camera frame' });
     await expect(piFrame).toBeVisible();
     await expect.poll(() => piFrame.evaluate((image: HTMLImageElement) => image.naturalWidth)).toBe(640);
 
@@ -85,36 +95,29 @@ test('two synthetic camera paths preview together and snapshots use the selected
     expect((await audit()).asks).toHaveLength(0);
     await page.screenshot({ path: 'runtime/dual-camera-workspace.png' });
 
-    await camera.getByRole('button', { name: 'Overview', exact: true }).click();
-    await expect(overviewVideo).toBeVisible();
-    await expect(piFrame).toBeHidden();
-    await camera.getByRole('button', { name: 'Pi close-up' }).click();
-    await expect(piFrame).toBeVisible();
-    await expect(overviewVideo).toBeHidden();
-    await camera.getByRole('button', { name: 'Both' }).click();
-    await expect(overviewVideo).toBeVisible();
-    await expect(piFrame).toBeVisible();
+    await expect(camera.getByRole('group', { name: 'Camera layout' })).toHaveCount(0);
     expect(await videoHandle!.evaluate((video: HTMLVideoElement) => video.srcObject instanceof MediaStream && video.srcObject.getVideoTracks()[0].readyState === 'live')).toBe(true);
 
-    await camera.getByLabel('Ask about').selectOption('overview');
-    await camera.getByRole('button', { name: 'Ask about this view' }).click();
+    await camera.getByRole('button', { name: 'Take photo for Photo help' }).click();
     await expect.poll(async () => (await audit()).captures.length).toBe(1);
     expect((await audit()).captures[0].source).toBe('overview');
-    const review = camera.getByRole('complementary', { name: 'Photo help review' });
-    await expect(review.getByText('Overview snapshot').first()).toBeVisible();
-    await review.getByRole('button', { name: 'Back to camera' }).click();
-    await camera.getByLabel('Ask about').selectOption('pi');
-    await camera.getByRole('button', { name: 'Ask about this view' }).click();
-    await expect.poll(async () => (await audit()).captures.length).toBe(2);
-    expect((await audit()).captures.map((item: any) => item.source)).toEqual(['overview', 'pi']);
+    await expect(page.locator('.photo-help-page').getByText('Overview snapshot').first()).toBeVisible();
+    await page.getByRole('navigation', { name: 'Workspace' }).getByRole('button', { name: 'Live help' }).click();
+    await camera.getByRole('button', { name: 'Turn off overview' }).click();
+    await expect(camera.getByRole('button', { name: 'Take photo for Photo help' })).toBeDisabled();
+    expect((await audit()).captures.map((item: any) => item.source)).toEqual(['overview']);
     const pixels = (await audit()).snapshotPixels;
-    expect(pixels.map((item: any) => item.source)).toEqual(['overview', 'pi']);
-    for (const [actual, expected] of [[pixels[0], { r: 229, g: 189, b: 126 }], [pixels[1], { r: 214, g: 140, b: 101 }]] as const) {
+    expect(pixels.map((item: any) => item.source)).toEqual(['overview']);
+    for (const [actual, expected] of [[pixels[0], { r: 229, g: 189, b: 126 }]] as const) {
       for (const channel of ['r', 'g', 'b'] as const) expect(Math.abs(actual[channel] - expected[channel])).toBeLessThanOrEqual(24);
     }
-    await expect(review.getByText('Pi snapshot').first()).toBeVisible();
     expect((await audit()).asks).toHaveLength(0);
-    await review.getByRole('button', { name: 'Back to camera' }).click();
+    await camera.getByRole('button', { name: 'Turn on overview' }).click();
+    await expect(camera.locator('.camera-workspace-stage')).toHaveClass(/stage-both/);
+
+    await page.evaluate(() => { (window as any).__tiltBoard = true; });
+    await expect.poll(() => camera.locator('.camera-workspace-aligned').evaluate((element: HTMLElement) => element.style.transform), { timeout: 7500 }).toMatch(/rotate\(-1[0-9].*scale\(1\.[1-9]/);
+    await expect(camera.getByText(/Display rotated/)).toBeVisible();
 
     await camera.getByRole('button', { name: 'Full screen', exact: true }).click();
     await expect(camera).toHaveClass(/is-focused/);
@@ -124,18 +127,22 @@ test('two synthetic camera paths preview together and snapshots use the selected
     await camera.getByRole('button', { name: 'Exit full screen' }).last().click();
     await expect(camera).not.toHaveClass(/is-focused/);
 
-    await camera.getByRole('button', { name: 'Disconnect Pi' }).click();
+    await camera.getByRole('button', { name: 'Turn off Turret' }).click();
     await expect(piFrame).toHaveCount(0);
-    await expect(camera.getByText('Pi camera is off')).toBeVisible();
+    await expect(camera.locator('.camera-workspace-stage')).toHaveClass(/stage-overview/);
     await expect(overviewVideo).toBeVisible();
     expect(await videoHandle!.evaluate((video: HTMLVideoElement) => video.srcObject instanceof MediaStream && video.srcObject.getVideoTracks()[0].readyState === 'live')).toBe(true);
-    await expect(camera.getByRole('button', { name: 'Ask about this view' })).toBeDisabled();
-    await camera.getByLabel('Ask about').selectOption('overview');
-    await expect(camera.getByRole('button', { name: 'Ask about this view' })).toBeEnabled();
+    await expect(camera.getByRole('button', { name: 'Take photo for Photo help' })).toBeEnabled();
     expect((await piAudit()).connected).toBe(false);
 
     await page.getByRole('navigation', { name: 'Workspace' }).getByRole('button', { name: 'Photo help' }).click();
-    await expect.poll(() => page.evaluate(() => (window as any).__overviewStreams.every((stream: MediaStream) => stream.getVideoTracks()[0].readyState === 'ended'))).toBe(true);
+    await expect.poll(() => page.evaluate(() => (window as any).__overviewStreams.some((stream: MediaStream) => stream.getVideoTracks()[0].readyState === 'live'))).toBe(true);
+    await page.getByRole('navigation', { name: 'Workspace' }).getByRole('button', { name: 'Live help' }).click();
+    await camera.getByRole('button', { name: 'Turn on Turret' }).click();
+    await expect.poll(async () => (await piAudit()).connected).toBe(true);
+    await page.getByRole('navigation', { name: 'Workspace' }).getByRole('button', { name: 'Turret' }).click();
+    await expect.poll(async () => (await piAudit()).connected).toBe(false);
+    await expect.poll(() => page.evaluate(() => (window as any).__overviewStreams.some((stream: MediaStream) => stream.getVideoTracks()[0].readyState === 'live'))).toBe(true);
     expect((await audit()).asks).toHaveLength(0);
     expect((await audit()).modelCalls).toBe(0);
     expect((await audit()).unexpected).toEqual([]);

@@ -11,8 +11,15 @@ function replaceOnce(before, after) {
   source = source.replace(before, after);
 }
 replaceOnce("payload.source !== 'overview'", "!['overview', 'pi'].includes(payload.source)");
-replaceOnce("image_id: imageIds[2], name: 'Overview snapshot'",
-  "image_id: payload.source === 'pi' ? '10000000-0000-4000-8000-000000000004' : imageIds[2], name: payload.source === 'pi' ? 'Pi snapshot' : 'Overview snapshot'");
+replaceOnce("  if (action === 'piVideoConnect') {", `  if (action === 'motionStatus') return { connected: piReplay.connected, armed: false, message: piReplay.reason };
+  if (action === 'motionKeepalive') return { connected: piReplay.connected, armed: false };
+  if (action === 'motionConnect') { piReplay.connected = true; piReplay.connects += 1; return { connected: true, armed: false }; }
+  if (action === 'motionFrame') { piReplay.frameCalls += 1; return { frame: piReplay.connected && piReplay.jpeg_base64
+    ? { jpeg_base64: piReplay.jpeg_base64, sequence: piReplay.frameCalls, generation: 'replay', width: 640, height: 360 } : null }; }
+  if (action === 'motionDisconnect') { piReplay.connected = false; piReplay.disconnects += 1; return { connected: false, armed: false }; }
+  if (action === 'piVideoConnect') {`);
+replaceOnce("name: 'Overview snapshot', data_url: payload.data_url",
+  "name: payload.source === 'pi' ? 'Pi snapshot' : 'Overview snapshot', data_url: payload.data_url");
 replaceOnce('audit.captures.push({ source: payload.source, captured_at: payload.captured_at, length: payload.data_url.length });', `
     const captureImage = require('electron').nativeImage.createFromDataURL(payload.data_url);
     const captureSize = captureImage.getSize();

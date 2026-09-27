@@ -54,13 +54,13 @@ test('late camera snapshot is released after leaving Live help', async () => {
     await camera.getByText('Camera setup').click();
     await camera.getByRole('button', { name: 'Enable & list cameras' }).click();
     await camera.getByLabel('Camera device').selectOption('late-replay-canvas');
-    await camera.getByRole('button', { name: 'Connect selected' }).click();
+    await camera.getByRole('button', { name: 'Turn on overview' }).click();
     await expect.poll(() => camera.locator('video').evaluate((video: HTMLVideoElement) => video.videoWidth)).toBeGreaterThan(0);
     await camera.getByRole('button', { name: 'Full screen', exact: true }).click();
     await expect(camera).toHaveClass(/is-focused/);
 
     await request('testDelayNextCapture');
-    await camera.getByRole('button', { name: 'Ask about this view' }).click();
+    await camera.getByRole('button', { name: 'Take photo for Photo help' }).click();
     await expect.poll(async () => (await request('testAudit') as any).lateCapturePending).toBe(true);
     expect((await request('testAudit') as any).captures).toHaveLength(1);
 
@@ -68,16 +68,17 @@ test('late camera snapshot is released after leaving Live help', async () => {
     await expect(camera).not.toHaveClass(/is-focused/);
     await page.getByRole('navigation', { name: 'Workspace' }).getByRole('button', { name: 'Photo help' }).click();
     await expect(page.getByText('Start with an image')).toBeVisible();
-    await expect.poll(() => page.evaluate(() => (window as any).__replayCameraStream.getVideoTracks()[0].readyState)).toBe('ended');
+    // Navigation keeps the camera connection, but invalidates the pending photo import.
+    expect(await page.evaluate(() => (window as any).__replayCameraStream.getVideoTracks()[0].readyState)).toBe('live');
     await request('testResolveLateCapture');
     await expect.poll(async () => (await request('testAudit') as any).releases).toContain('10000000-0000-4000-8000-000000000003');
     await expect(page.getByText('Start with an image')).toBeVisible();
-    await expect(page.getByText('Overview snapshot')).toHaveCount(0);
+    await expect(page.locator('.photo-help-page').getByText('Overview snapshot')).toHaveCount(0);
 
     await page.getByRole('navigation', { name: 'Workspace' }).getByRole('button', { name: 'Live help' }).click();
     await expect(camera).toBeVisible();
-    await expect(camera.getByRole('complementary', { name: 'Photo help review' })).toHaveCount(0);
-    await expect(camera.getByText('Overview snapshot')).toHaveCount(0);
+    await expect(camera.getByRole('button', { name: 'Take photo for Photo help' })).toBeVisible();
+    await expect(camera.locator('.photo-help-page').getByText('Overview snapshot')).toHaveCount(0);
     const audit = await request('testAudit') as any;
     expect(audit.asks).toHaveLength(0);
     expect(audit.modelCalls).toBe(0);

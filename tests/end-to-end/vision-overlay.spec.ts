@@ -94,7 +94,7 @@ test('local point overlay follows synthetic video, loses obscured detail, and st
     await camera.getByText('Camera setup').click();
     await camera.getByRole('button', { name: 'Enable & list cameras' }).click();
     await camera.getByLabel('Camera device').selectOption('vision-canvas');
-    await camera.getByRole('button', { name: 'Connect selected' }).click();
+    await camera.getByRole('button', { name: 'Turn on overview' }).click();
     await expect.poll(() => camera.locator('video').evaluate((video: HTMLVideoElement) => video.videoWidth)).toBe(640);
     const overlay = camera.locator('.camera-workspace-overview .vision-overlay-target');
     await expect(overlay).toHaveCount(0); // No continuous vision before opt-in.

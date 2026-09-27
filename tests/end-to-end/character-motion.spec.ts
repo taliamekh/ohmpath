@@ -16,7 +16,7 @@ const OUTER: Region = { x0: .04, y0: .35, x1: .34, y1: .88 };
 const WHOLE: Region = { x0: 0, y0: 0, x1: 1, y1: 1 };
 
 async function canvasHashes(page: import('@playwright/test').Page, region: Region) {
-  return page.locator('.bench-guide-card .frieren-guide canvas').evaluate((canvas, box) => {
+  return page.locator('.camera-workspace-focus-guide .frieren-guide canvas').evaluate((canvas, box) => {
     const element = canvas as HTMLCanvasElement;
     const context = element.getContext('2d');
     if (!context) throw new Error('Character canvas is unavailable.');
@@ -59,7 +59,7 @@ async function setOfflineGuideExpression(page: import('@playwright/test').Page,
                                          expression: 'thinking' | 'stumped') {
   // The replay deliberately has no fake investigator/model. Use the local React
   // state setter to inspect the real rig for the two other open-eye poses.
-  await page.locator('.bench-guide-card .frieren-guide').evaluate((element, next) => {
+  await page.locator('.camera-workspace-focus-guide .frieren-guide').evaluate((element, next) => {
     const key = Object.keys(element).find(name => name.startsWith('__reactFiber$'));
     if (!key) throw new Error('Character React fiber was unavailable.');
     let fiber = (element as any)[key];
@@ -77,7 +77,7 @@ async function setOfflineGuideExpression(page: import('@playwright/test').Page,
     }
     throw new Error('Guide expression setter was unavailable.');
   }, expression);
-  await expect(page.locator('.bench-guide-card .frieren-guide')).toHaveAttribute('data-expression', expression);
+  await expect(page.locator('.camera-workspace-focus-guide .frieren-guide')).toHaveAttribute('data-expression', expression);
 }
 
 test('offline character motion blinks locally, anchors the waist, and obeys Reduce motion', async () => {
@@ -109,7 +109,7 @@ test('offline character motion blinks locally, anchors the waist, and obeys Redu
       Object.defineProperty(document, 'hidden', { configurable: true, get: () => false });
       document.dispatchEvent(new Event('visibilitychange'));
     });
-    await expect(page.locator('.bench-guide-card .frieren-guide canvas')).toBeVisible();
+    await expect(page.locator('.camera-workspace-focus-guide .frieren-guide canvas')).toBeVisible();
     await expect.poll(async () => (await canvasHashes(page, UPPER_FACE)).opaque).toBeGreaterThan(50);
     await page.screenshot({ path: 'runtime/character-bench-idle.png', fullPage: true });
 
@@ -151,7 +151,7 @@ test('offline character motion blinks locally, anchors the waist, and obeys Redu
     expect((await canvasHashes(page, RIGHT_EYE)).iris, 'right iris must be fully covered at blink peak').toBe(0);
     expect((await canvasHashes(page, LOWER_FACE)).hash,
       'blink must leave the nose and lower face unchanged').toBe(openLowerFace.hash);
-    await page.locator('.bench-guide-card .frieren-guide').screenshot({ path: 'runtime/character-neutral-blink.png' });
+    await page.locator('.camera-workspace-focus-guide .frieren-guide').screenshot({ path: 'runtime/character-neutral-blink.png' });
     await page.evaluate(() => (window as any).__restoreBlinkClock());
 
     for (const expression of ['thinking', 'stumped'] as const) {
@@ -159,7 +159,7 @@ test('offline character motion blinks locally, anchors the waist, and obeys Redu
       await expect.poll(async () => (await canvasHashes(page, LEFT_EYE)).iris).toBeGreaterThan(5);
       await expect.poll(async () => (await canvasHashes(page, RIGHT_EYE)).iris).toBeGreaterThan(5);
       const poseLowerFace = await canvasHashes(page, LOWER_FACE);
-      await page.locator('.bench-guide-card .frieren-guide').screenshot({
+      await page.locator('.camera-workspace-focus-guide .frieren-guide').screenshot({
         path: `runtime/character-${expression}-open.png`,
       });
       await forceBlinkClock(page);
@@ -169,7 +169,7 @@ test('offline character motion blinks locally, anchors the waist, and obeys Redu
         { timeout: 3000 }).toBe(0);
       expect((await canvasHashes(page, LOWER_FACE)).hash,
         `${expression} blink must leave the lower face unchanged`).toBe(poseLowerFace.hash);
-      await page.locator('.bench-guide-card .frieren-guide').screenshot({
+      await page.locator('.camera-workspace-focus-guide .frieren-guide').screenshot({
         path: `runtime/character-${expression}-blink.png`,
       });
       await page.evaluate(() => (window as any).__restoreBlinkClock());
@@ -186,7 +186,7 @@ test('offline character motion blinks locally, anchors the waist, and obeys Redu
 
     await page.getByRole('checkbox', { name: /Reduce motion/ }).check();
     await page.getByRole('button', { name: 'Live help', exact: false }).first().click();
-    await expect(page.locator('.bench-guide-card .frieren-guide canvas')).toBeVisible();
+    await expect(page.locator('.camera-workspace-focus-guide .frieren-guide canvas')).toBeVisible();
     await expect.poll(async () => (await canvasHashes(page, WHOLE)).opaque).toBeGreaterThan(100);
     const still = await canvasHashes(page, WHOLE);
     await page.waitForTimeout(800);

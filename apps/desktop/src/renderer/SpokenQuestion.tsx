@@ -19,6 +19,7 @@ export type SpokenQuestionProps = {
   onText: (text: string) => void;
   onRecording?: (recording: boolean) => void;
   onBeforeCapture?: () => void;
+  askOnFinish?: boolean;
 };
 
 const MAX_SECONDS = 20;
@@ -71,7 +72,7 @@ function wavBase64(recorded: Recorded): string {
   return btoa(binary);
 }
 
-export default function SpokenQuestion({ active, disabled = false, onText, onRecording, onBeforeCapture }: SpokenQuestionProps) {
+export default function SpokenQuestion({ active, disabled = false, onText, onRecording, onBeforeCapture, askOnFinish = false }: SpokenQuestionProps) {
   const [phase, setPhase] = useState<Phase>("idle");
   const [available, setAvailable] = useState(false);
   const [notice, setNotice] = useState("Checking local speech…");
@@ -227,7 +228,7 @@ export default function SpokenQuestion({ active, disabled = false, onText, onRec
         setNotice("No clear words were heard. Try again or type your question.");
       } else {
         currentRef.current.onText(result.text.trim());
-        setNotice("Added to your draft. Review it before asking.");
+        setNotice(askOnFinish ? "Question captured. Opening Photo help for your review…" : "Added to your draft. Review it before asking.");
       }
     } catch {
       if (generation === generationRef.current && mountedRef.current)
@@ -241,13 +242,14 @@ export default function SpokenQuestion({ active, disabled = false, onText, onRec
   return <div className="spoken-question" aria-label="Spoken question" style={{ marginTop: 10 }}>
     <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
       {phase === "idle" && <button type="button" className="button secondary" disabled={!active || disabled || !available}
-        onClick={() => void start()}>Start recording</button>}
+        onClick={() => void start()}>{askOnFinish ? "Talk to helper" : "Start recording"}</button>}
       {phase === "requesting" && <button type="button" className="button secondary" disabled>Opening microphone…</button>}
       {(phase === "recording" || phase === "ready") && <button type="button" className="button primary"
-        onClick={() => void finish()}>Finish recording</button>}
+        onClick={() => void finish()}>{askOnFinish ? "Finish and open Photo help" : "Finish recording"}</button>}
       {phase === "transcribing" && <button type="button" className="button secondary" disabled>Transcribing…</button>}
       {phase !== "idle" && <button type="button" className="button secondary" onClick={cancelCapture}>Cancel recording</button>}
     </div>
     <small role="status" aria-live="polite" style={{ display: "block", marginTop: 6 }}>{notice}</small>
+    {askOnFinish && <small>Finish and open Photo help to review your question with the current camera view before sending it.</small>}
   </div>;
 }

@@ -39,6 +39,7 @@ let turretPreference;
 let phonePhotos;
 let phoneLive;
 let phoneLiveStarting = null;
+let phoneLiveWarmup = null;
 let phoneLiveQr = { url: '', data: '' };
 let phoneLiveReadyUrl = '';
 let phonePhotoAccepting = false;
@@ -226,7 +227,30 @@ ipcMain.handle('ohmpath:request', async (event, action, payload) => {
   if (action === 'visionFrame') return callBench('/v1/vision/track', 'POST', payload);
   if (action === 'visionReset') return callBench('/v1/vision/reset', 'POST', { context_id: payload.context_id });
   if (action === 'turretStatus') return turretPreference.status();
-  if (action === 'setTurretEnabled') return turretPreference.set(payload.enabled);
+  if (action === 'setTurretEnabled') {
+    if (payload.enabled === false) await callBench('/v1/turret/release', 'POST', {});
+    return turretPreference.set(payload.enabled);
+  }
+  const turretRoutes = {
+    motionStatus: ['status', 'GET'], motionFrame: ['frame', 'GET'],
+    motionConnect: ['connect', 'POST'], motionDisconnect: ['disconnect', 'POST'],
+    motionKeepalive: ['keepalive', 'POST'], motionArm: ['arm', 'POST'], motionJog: ['jog', 'POST'],
+    motionDrive: ['drive', 'POST'],
+    motionTeaching: ['teaching', 'POST'],
+    motionHome: ['home', 'POST'], motionSave: ['save', 'POST'], motionStop: ['stop', 'POST'],
+    motionRelease: ['release', 'POST'], motionRotate: ['rotate', 'POST'], motionRefocus: ['refocus', 'POST'],
+    motionSelect: ['select', 'POST'], motionCalibrate: ['calibrate', 'POST'],
+    motionFollow: ['follow', 'POST'], motionAimReference: ['aim-reference', 'POST'],
+    motionIdentifyComponents: ['identify-components', 'POST'], motionApproveComponents: ['approve-components', 'POST'],
+    motionClearComponents: ['clear-components', 'POST'], motionTour: ['tour', 'POST'], motionSpotReference: ['spot-reference', 'POST'],
+    motionPrepareFraming: ['prepare-framing', 'POST'], motionReposition: ['reposition', 'POST'],
+    motionGuide: ['guide', 'POST'], motionPointComponent: ['point-component', 'POST'],
+  };
+  if (Object.hasOwn(turretRoutes, action)) {
+    if (action === 'motionConnect') piVideo.disconnect();
+    const [path, method] = turretRoutes[action];
+    return callBench(`/v1/turret/${path}`, method, method === 'POST' ? payload : undefined);
+  }
   if (action === 'phonePhotoStatus') return phonePhotoStatus();
   if (action === 'phonePhotoSetAccepting') {
     phonePhotoAccepting = payload.accepting === true;
@@ -315,6 +339,7 @@ ipcMain.handle('ohmpath:request', async (event, action, payload) => {
   if (action === 'piVideoStatus') return piVideo.status();
   if (action === 'piVideoDisconnect') return piVideo.disconnect();
   if (action === 'pause' || action === 'stop' || action === 'selectFixture') {
+    await callBench('/v1/turret/release', 'POST', {});
     void elevenLabs?.handle('cancelSpeech', {});
     piVideo.disconnect(); microphoneAllowed = false; cameraAllowed = false;
   }
@@ -419,6 +444,10 @@ app.whenReady().then(async () => {
     pageFactory: phoneLivePage,
     tunnelFactory: createPhoneLiveTunnel({ binaryPath: process.env.OHMPATH_CLOUDFLARED || join(root, 'runtime', 'tools', process.platform === 'win32' ? 'cloudflared.exe' : 'cloudflared') }),
   });
+  phoneLiveWarmup = new AbortController();
+  void phoneLive.open().then(status => waitForPhoneLivePage(status.url, { signal: phoneLiveWarmup.signal }))
+    .then(() => { if (!phoneLiveWarmup.signal.aborted) phoneLiveReadyUrl = phoneLive.status().url; })
+    .catch(() => undefined);
   session.defaultSession.setPermissionCheckHandler((contents, permission, _origin, details) => {
     const expected = require('node:url').pathToFileURL(join(root, 'dist/desktop/index.html')).href;
     const url = contents?.getURL() || '';
@@ -439,10 +468,12 @@ app.whenReady().then(async () => {
     icon: windowIcon, backgroundColor: '#eee9d7', autoHideMenuBar: true,
     ...(process.platform === 'win32' ? { titleBarStyle: 'hidden',
       titleBarOverlay: { color: '#173e2d', symbolColor: '#fff4db', height: 32 } } : {}),
-    webPreferences: { preload: join(__dirname, 'preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true } });
+    webPreferences: { preload: join(__dirname, 'preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true,
+      backgroundThrottling: false } });
   mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   mainWindow.webContents.on('will-navigate', event => event.preventDefault());
   mainWindow.webContents.on('render-process-gone', () => {
+    void callBench('/v1/turret/disconnect', 'POST', {}).catch(() => {});
     void elevenLabs?.handle('cancelSpeech', {});
     // A dead interface must not leave its investigator or bench process running.
     microphoneAllowed = false; cameraAllowed = false;
@@ -469,6 +500,7 @@ app.on('before-quit', createQuitGate(async () => {
   phonePhotoAccepting = false;
   const phoneClosing = Promise.allSettled([phonePhotos?.stop(), phoneLive?.shutdown()]);
   phoneLiveStarting?.controller.abort();
+  phoneLiveWarmup?.abort();
   pendingPhonePhoto = null;
   photoImages.clear();
   piVideo.disconnect();
@@ -477,7 +509,7 @@ app.on('before-quit', createQuitGate(async () => {
     if (!child || child.exitCode !== null) { resolve(); return; }
     const timer = setTimeout(() => { if (child.exitCode === null) child.kill(); resolve(); }, 10000);
     child.once('exit', () => { clearTimeout(timer); resolve(); });
-    child.stdin.end();
+    void callBench('/v1/turret/disconnect', 'POST', {}).catch(() => {}).finally(() => child?.stdin.end());
   });
   await Promise.allSettled([phoneClosing, benchClosing]);
 }, () => app.quit()));

@@ -49,6 +49,10 @@ export type PhotoHelpPageProps = {
   onStopSpeaking?: () => void;
   speechAvailable?: boolean;
   phoneTransfer?: boolean;
+  onPointWithTurret?: (question: string) => void;
+  spokenSubmission?: { id: string; image_id: string; text: string };
+  onSpokenSubmissionConsumed?: () => void;
+  onPrepareSpeech?: () => void;
 };
 
 async function request<T>(action: string, payload: Record<string, unknown> = {}): Promise<T> {
@@ -95,18 +99,44 @@ function cleanAnswer(value: unknown, imageIds: Set<string>): PhotoAnswer {
 }
 
 function speakText(answer: PhotoAnswer): string {
-  return [answer.explanation, ...answer.next_steps.slice(0, 3)].join(" ");
+  // Speak the active check only. The ordered plan and alternatives stay on screen.
+  const parts = [answer.explanation, ...answer.next_steps.slice(0, 1)];
+  let text = "";
+  for (const part of parts) {
+    if ((text + " " + part).trim().length > 940) break;
+    text = (text + " " + part).trim();
+  }
+  if (!text) {
+    for (const sentence of answer.explanation.match(/[^.!?]+[.!?]+(?:\s|$)/g) ?? []) {
+      if ((text + sentence).length > 880) break;
+      text += sentence;
+    }
+  }
+  return text.trim() ? text.trim() + (text.trim() !== parts.join(" ") ? " More details are shown on screen." : "")
+    : "The circuit review is ready. Please read the explanation and next checks on screen.";
 }
 
-export default function PhotoHelpPage({ active = true, initialCapture, onCaptureConsumed, prefillQuestion = "", onPrefillConsumed, onActivity, onReadAloud, onStopSpeaking, speechAvailable = false, phoneTransfer = false }: PhotoHelpPageProps) {
+function testParts(step: string) {
+  const parts = step.split(/\s*\|\s*/).map(part => part.trim()).filter(Boolean);
+  if (parts.length < 2 || !/^Test:/i.test(parts[0])) return { instruction: step, meanings: [] as string[] };
+  return { instruction: parts[0].replace(/^Test:\s*/i, ""), meanings: parts.slice(1) };
+}
+
+export default function PhotoHelpPage({ active = true, initialCapture, onCaptureConsumed, prefillQuestion = "", onPrefillConsumed, onActivity, onReadAloud, onStopSpeaking, speechAvailable = false, phoneTransfer = false, onPointWithTurret, spokenSubmission, onSpokenSubmissionConsumed, onPrepareSpeech }: PhotoHelpPageProps) {
   const questionId = useId();
   const [images, setImages] = useState<PhotoHelpImage[]>([]);
   const [selectedId, setSelectedId] = useState("");
   const [question, setQuestion] = useState("");
+  const [testResult, setTestResult] = useState("");
+  const [recordingResult, setRecordingResult] = useState(false);
   const [turns, setTurns] = useState<Turn[]>([]);
   const [busy, setBusy] = useState(false);
   const [choosing, setChoosing] = useState(false);
   const [recordingQuestion, setRecordingQuestion] = useState(false);
+  const [readReplies, setReadReplies] = useState(true);
+  const consumedSpokenRef = useRef("");
+  const replySpeechRef = useRef({ speechAvailable, readReplies, onReadAloud });
+  replySpeechRef.current = { speechAvailable, readReplies, onReadAloud };
   const [error, setError] = useState("");
   const [zoom, setZoom] = useState(1);
   const [activeNote, setActiveNote] = useState<number | null>(null);
@@ -165,6 +195,7 @@ export default function PhotoHelpPage({ active = true, initialCapture, onCapture
     setWholeImage(false);
     setActiveNote(null);
     setTurns([]);
+    setTestResult("");
     setError("");
   }
 
@@ -210,7 +241,8 @@ export default function PhotoHelpPage({ active = true, initialCapture, onCapture
       return;
     }
     if (!imagesRef.current.some((image) => image.image_id === initialCapture.image_id)) {
-      if (imagesRef.current.length < 3) changeImages([...imagesRef.current, initialCapture]);
+      if (spokenSubmission?.image_id === initialCapture.image_id) changeImages([initialCapture]);
+      else if (imagesRef.current.length < 3) changeImages([...imagesRef.current, initialCapture]);
       else {
         release(initialCapture.image_id);
         setError("Three images are already open. Remove one, then capture the new view again.");
@@ -226,6 +258,15 @@ export default function PhotoHelpPage({ active = true, initialCapture, onCapture
     setActiveNote(null);
     onCaptureConsumed?.();
   }, [active, initialCapture, onCaptureConsumed]);
+
+  useEffect(() => {
+    if (!active || recordingQuestion || jobRef.current || !spokenSubmission || consumedSpokenRef.current === spokenSubmission.id
+        || !images.some(image => image.image_id === spokenSubmission.image_id)) return;
+    consumedSpokenRef.current = spokenSubmission.id;
+    setQuestion(spokenSubmission.text);
+    void ask(spokenSubmission.text);
+    onSpokenSubmissionConsumed?.();
+  }, [active, images, spokenSubmission, recordingQuestion, busy]);
 
   useEffect(() => {
     if (!active || !prefillQuestion) return;
@@ -307,9 +348,12 @@ export default function PhotoHelpPage({ active = true, initialCapture, onCapture
     if (result.status === "completed" && result.answer) {
       const answer = cleanAnswer(result.answer, new Set(imagesRef.current.map((image) => image.image_id)));
       setTurns((current) => [...current, { id: result.turn_id, question: askedQuestion, answer }].slice(-4));
+      setTestResult("");
       setActiveNote(null);
       setError("");
       activity("idle", speakText(answer));
+      const speech = replySpeechRef.current;
+      if (speech.speechAvailable && speech.readReplies) speech.onReadAloud?.(speakText(answer));
     } else if (result.status === "cancelled") {
       activity("idle");
     } else {
@@ -340,11 +384,12 @@ export default function PhotoHelpPage({ active = true, initialCapture, onCapture
     }
   }
 
-  async function ask() {
-    const askedQuestion = question.trim();
+  async function ask(submittedQuestion?: string) {
+    const askedQuestion = (submittedQuestion ?? question).trim();
     if (!activeRef.current || !askedQuestion || !imagesRef.current.length || jobRef.current || recordingQuestion) return;
     stopSpeakingRef.current?.();
     const job: ActiveJob = { context_id: contextIdRef.current, generation: ++generationRef.current, deadline: Date.now() + 90_000 };
+    if (speechAvailable && readReplies) onPrepareSpeech?.();
     jobRef.current = job;
     setBusy(true);
     setError("");
@@ -367,15 +412,12 @@ export default function PhotoHelpPage({ active = true, initialCapture, onCapture
 
   const selected = images.find((image) => image.image_id === selectedId) ?? images[0];
   const latest = turns[turns.length - 1];
+  const activeTest = latest?.answer.next_steps[0];
+  const activeTestParts = activeTest ? testParts(activeTest) : null;
   const notes = latest?.answer.annotations.filter((item) => item.image_id === selected?.image_id) ?? [];
   const crop = wholeImage ? undefined : selected?.focus_region;
 
   return <main className="photo-help-page">
-    <header className="photo-help-heading">
-      <div><span className="eyebrow">YOUR VISUAL WORKSPACE</span><h1>Photo help<span aria-hidden="true"> ✦</span></h1><p>Show me a circuit, diagram, or part. Ask one clear question and we’ll work through what’s visible.</p></div>
-      <span className="photo-help-private"><span /> Images stay local until you ask</span>
-    </header>
-
     {phoneTransfer && <PhonePhotoLink active={active} accepting={!busy && !choosing && images.length < 3}
       onPhoto={({ image, question: phoneQuestion }) => {
         if (!activeRef.current || !validImage(image) || imagesRef.current.length >= 3 || jobRef.current) {
@@ -413,11 +455,13 @@ export default function PhotoHelpPage({ active = true, initialCapture, onCapture
             onText={text => setQuestion(text.slice(0, 4000))}
             onRecording={recording => { setRecordingQuestion(recording); activity(recording ? "listening" : "idle", recording ? "I’m listening. Finish recording when you’re ready." : ""); }} />
           <p className="photo-help-voice-hint">Review your question, then press Ask. Recording fills this draft only.</p><p className="photo-help-disclosure">When you press Ask, your selected images and question go to your signed-in subscription reasoning service.</p>
+          <label><input type="checkbox" checked={readReplies} onChange={event => setReadReplies(event.target.checked)} /> Read replies aloud</label>
+          {readReplies && !speechAvailable && <p className="photo-help-voice-hint">Enable spoken answers or a local voice in Settings to hear replies.</p>}
           <button type="button" className="button primary photo-help-submit" onClick={() => void ask()} disabled={busy || recordingQuestion || !images.length || !question.trim()}>{busy ? "Looking at your images…" : "Ask about these images"}<span>→</span></button>{busy && <button type="button" className="photo-help-cancel" onClick={cancelJob}>Stop request</button>}{error && <p className="photo-help-error" role="alert">{error}</p>}</section>
       </aside>
     </div>
 
-    {latest && <section className="panel photo-help-answer" aria-live="polite"><div className="photo-help-answer-head"><span className="eyebrow">03 / WHAT I CAN SEE</span><span>Based on these images</span></div><h2>{latest.question}</h2><p className="photo-help-explanation">{latest.answer.explanation}</p>{latest.answer.next_steps.length > 0 && <div className="photo-help-steps"><strong>Try next</strong><ol>{latest.answer.next_steps.slice(0, 4).map((step, index) => <li key={index}>{step}</li>)}</ol></div>}{speechAvailable && onReadAloud && <button type="button" className="button secondary photo-help-listen" onClick={() => onReadAloud(speakText(latest.answer))}>Listen to answer <span>▶</span></button>}{(latest.answer.observations.length > 0 || latest.answer.questions.length > 0 || latest.answer.limitations.length > 0) && <details className="photo-help-details"><summary>More detail and uncertainty</summary>{latest.answer.observations.length > 0 && <div><strong>Visible details</strong><ul>{latest.answer.observations.map((item, index) => <li key={index}>{item}</li>)}</ul></div>}{latest.answer.questions.length > 0 && <div><strong>Helpful follow-up questions</strong><ul>{latest.answer.questions.map((item, index) => <li key={index}>{item}</li>)}</ul></div>}{latest.answer.limitations.length > 0 && <div><strong>What the image cannot confirm</strong><ul>{latest.answer.limitations.map((item, index) => <li key={index}>{item}</li>)}</ul></div>}</details>}</section>}
+    {latest && <section className="panel photo-help-answer" aria-live="polite"><div className="photo-help-answer-head"><span className="eyebrow">03 / WHAT I CAN SEE</span><span>Based on these images</span></div><h2>{latest.question}</h2><p className="photo-help-explanation">{latest.answer.explanation}</p>{latest.answer.limitations.length > 0 && <div className="photo-help-limits"><strong>What this view cannot confirm</strong><ul>{latest.answer.limitations.slice(0, 3).map((item, index) => <li key={index}>{item}</li>)}</ul></div>}{activeTestParts && <div className="photo-help-steps" aria-label="Ordered test plan"><strong>Test 1 · do this now</strong><p>{activeTestParts.instruction}</p>{activeTestParts.meanings.length > 0 && <ul>{activeTestParts.meanings.map((meaning,index) => <li key={index}>{meaning}</li>)}</ul>}{latest.answer.next_steps.length > 1 && <details><summary>Later tests, in order</summary><ol start={2}>{latest.answer.next_steps.slice(1,3).map((step,index) => <li key={index}>{testParts(step).instruction}</li>)}</ol><p>Wait for the current result before trying these.</p></details>}{onPointWithTurret && <button type="button" className="button secondary small" disabled={busy} onClick={() => onPointWithTurret(activeTest)}>Show this test location with the pointer</button>}<div className="photo-help-test-result"><label htmlFor="photo-test-result">What happened when you ran this test?</label><textarea id="photo-test-result" rows={2} maxLength={1200} value={testResult} onChange={event => setTestResult(event.target.value)} placeholder="Describe the meter reading, visible result, or why you could not run it." /><SpokenQuestion active={active} disabled={busy} onBeforeCapture={onStopSpeaking} onText={text => setTestResult(text.slice(0,1200))} onRecording={setRecordingResult} /><p>A spoken result fills this draft. Check it before submitting; it is a user report, not a confirmed measurement.</p><button type="button" className="button primary small" disabled={busy || recordingResult || !testResult.trim()} onClick={() => void ask(`For test 1, ${activeTestParts.instruction} The user reports: ${testResult.trim()}. Treat this as an unconfirmed user report. Explain what this result suggests, what it cannot establish, and give the single best next test with meanings for plausible results.`)}>Explain this result and choose next test</button></div></div>}{speechAvailable && onReadAloud && <button type="button" className="button secondary photo-help-listen" onClick={() => onReadAloud(speakText(latest.answer))}>Listen to current guidance <span>▶</span></button>}{(latest.answer.observations.length > 0 || latest.answer.questions.length > 0 || latest.answer.limitations.length > 3) && <details className="photo-help-details"><summary>More detail and uncertainty</summary>{latest.answer.observations.length > 0 && <div><strong>Visible details</strong><ul>{latest.answer.observations.map((item, index) => <li key={index}>{item}</li>)}</ul></div>}{latest.answer.questions.length > 0 && <div><strong>Helpful follow-up questions</strong><ul>{latest.answer.questions.map((item, index) => <li key={index}>{item}</li>)}</ul></div>}{latest.answer.limitations.length > 3 && <div><strong>Other limits</strong><ul>{latest.answer.limitations.slice(3).map((item, index) => <li key={index}>{item}</li>)}</ul></div>}</details>}</section>}
     {turns.length > 1 && <section className="photo-help-recent" aria-label="Recent questions"><span className="eyebrow">RECENT QUESTIONS</span>{turns.slice(0, -1).map((turn) => <details key={turn.id}><summary>{turn.question}</summary><p>{turn.answer.explanation}</p></details>)}</section>}
   </main>;
 }

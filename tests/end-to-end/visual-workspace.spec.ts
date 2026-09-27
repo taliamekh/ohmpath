@@ -55,11 +55,9 @@ test('visual workspace stays opt-in and photo and turret controls fail closed', 
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(981);
     const camera = page.getByRole('region', { name: 'Camera workspace' });
     await expect(camera.getByText('Overview camera is off')).toBeVisible();
-    await expect(camera.getByRole('button', { name: 'Ask about this view' })).toBeDisabled();
+    await expect(camera.getByRole('button', { name: 'Take photo for Photo help' })).toBeDisabled();
     expect(await camera.locator('video').evaluate((video: HTMLVideoElement) => video.srcObject)).toBeNull();
-    await camera.getByRole('button', { name: 'Both' }).click();
-    await expect(camera.getByText('Pi camera is off')).toBeVisible();
-    await camera.getByRole('button', { name: 'Overview', exact: true }).click();
+    await expect(camera.getByRole('group', { name: 'Camera layout' })).toHaveCount(0);
     await captureViewport(page, 'runtime/visual-workspace.png');
     await page.setViewportSize({ width: 1440, height: 900 });
     await captureViewport(page, 'runtime/theme-live-1440.png');
@@ -104,7 +102,7 @@ test('visual workspace stays opt-in and photo and turret controls fail closed', 
     expect(await reloadedCamera.locator('video').evaluate((video: HTMLVideoElement) => video.srcObject)).toBeNull();
 
     await page.getByRole('button', { name: 'Photo help', exact: false }).first().click();
-    await expect(page.getByRole('heading', { name: /Photo help/ })).toBeVisible();
+    await expect(page.locator('.photo-help-heading')).toHaveCount(0);
     await expect(page.getByText('Start with an image')).toBeVisible();
     await expect(page.getByText('No camera needed')).toBeVisible();
     await captureViewport(page, 'runtime/theme-photo-980.png');

@@ -3,8 +3,9 @@ import "./camera-workspace.css";
 import VisionOverlay from "./VisionOverlay";
 import PhoneLiveCamera from "./PhoneLiveCamera";
 import CameraFraming, { suggestMediaRegion } from "./CameraFraming";
-import type { FrameRegion } from "./circuit-framing";
+import { suggestCircuitRegion, type FrameRegion } from "./circuit-framing";
 import { framedImageBox, pointInFrame } from "./camera-framing-geometry";
+import { estimateOverheadTilt } from "./overhead-alignment";
 
 export type CameraCapture = {
   data_url: string;
@@ -15,10 +16,11 @@ export type CameraCapture = {
 
 type Props = {
   paused: boolean;
-  onSnapshot: (capture: CameraCapture) => Promise<void> | void;
+  reservedForTurret?: boolean;
+  onSnapshot: (capture: CameraCapture, question?: string) => Promise<void> | void;
   onActivity?: (caption: string) => void;
   guide?: ReactNode;
-  helpPanel?: ReactNode;
+  voiceControl?: ReactNode | ((ask: (question: string) => Promise<void>) => ReactNode);
   caption?: string;
   subtitlesEnabled?: boolean;
   onSubtitlesChange?: (enabled: boolean) => void;
@@ -79,11 +81,11 @@ async function decodeJpeg(url: string): Promise<HTMLImageElement> {
   const image = new Image();
   image.src = url;
   try { await image.decode(); }
-  catch { throw new Error("The latest Pi frame could not be decoded."); }
+  catch { throw new Error("The latest Turret frame could not be decoded."); }
   return image;
 }
 
-export default function CameraWorkspace({ paused, onSnapshot, onActivity, guide, helpPanel, caption, subtitlesEnabled, onSubtitlesChange, onFocusChange, onPause, speechPending, onStopSpeaking }: Props) {
+export default function CameraWorkspace({ paused, reservedForTurret = false, onSnapshot, onActivity, guide, voiceControl, caption, subtitlesEnabled, onSubtitlesChange, onFocusChange, onPause, speechPending, onStopSpeaking }: Props) {
   const [devices, setDevices] = useState<CameraDevice[]>([]);
   const [selectedDevice, setSelectedDevice] = useState("");
   const [overviewEnabled, setOverviewEnabled] = useState(false);
@@ -106,6 +108,9 @@ export default function CameraWorkspace({ paused, onSnapshot, onActivity, guide,
   const [focused, setFocused] = useState(false);
   const [localSubtitlesEnabled, setLocalSubtitlesEnabled] = useState(true);
   const [trackingEnabled, setTrackingEnabled] = useState(false);
+  const [straightenOverhead, setStraightenOverhead] = useState(true);
+  const [overheadTilt, setOverheadTilt] = useState(0);
+  const [alignmentHint, setAlignmentHint] = useState("");
   const [circuitFocus, setCircuitFocus] = useState<{ source: "overview" | "pi"; region: FrameRegion; width: number; height: number; manual?: boolean } | null>(null);
   const [focusCloseUp, setFocusCloseUp] = useState(true);
   const [pickCloseUp, setPickCloseUp] = useState(false);
@@ -125,15 +130,22 @@ export default function CameraWorkspace({ paused, onSnapshot, onActivity, guide,
   const streamRef = useRef<MediaStream | null>(null);
   const mountedRef = useRef(true);
   const pausedRef = useRef(paused);
+  const reservedForTurretRef = useRef(reservedForTurret);
+  const straightenOverheadRef = useRef(straightenOverhead);
   const overviewGeneration = useRef(0);
   const piGeneration = useRef(0);
   const piActiveRef = useRef(false);
+  const piModeRef = useRef<"paired" | "tunnel" | null>(null);
   const piConnectingRef = useRef(false);
   const piPollTimer = useRef<number | null>(null);
   const lastOverviewFrameAt = useRef(0);
+  const lastAlignmentAt = useRef(0);
+  const alignmentCandidate = useRef<{ angle: number; count: number }>({ angle: 0, count: 0 });
   const videoFrameRequest = useRef<number | null>(null);
   const videoTimeUpdate = useRef<(() => void) | null>(null);
   pausedRef.current = paused;
+  reservedForTurretRef.current = reservedForTurret;
+  straightenOverheadRef.current = straightenOverhead;
 
   function updateFocus(value: boolean) {
     if (focusedRef.current === value) return;
@@ -266,13 +278,19 @@ export default function CameraWorkspace({ paused, onSnapshot, onActivity, guide,
     videoFrameRequest.current = null;
     videoTimeUpdate.current = null;
     lastOverviewFrameAt.current = 0;
-    if (mountedRef.current) { setOverviewEnabled(false); setTrackingEnabled(false); }
+    lastAlignmentAt.current = 0;
+    alignmentCandidate.current = { angle: 0, count: 0 };
+    if (mountedRef.current) { setOverviewEnabled(false); setTrackingEnabled(false); setOverheadTilt(0); setAlignmentHint(""); }
   }, []);
 
   function stopAllOverview() {
     setCircuitFocus(null);
     setPhoneStopSignal(value => value + 1);
     stopOverview();
+    if (piActiveRef.current) {
+      setLayout("pi");
+      setSnapshotSource("pi");
+    } else setLayout("overview");
   }
 
   function preparePhone() {
@@ -281,7 +299,7 @@ export default function CameraWorkspace({ paused, onSnapshot, onActivity, guide,
     setOverviewError("");
     overviewKindRef.current = "phone";
     setOverviewKind("phone");
-    setLayout("overview");
+    setLayout(piActiveRef.current ? "pi" : "overview");
     setSnapshotSource("overview");
   }
 
@@ -300,6 +318,8 @@ export default function CameraWorkspace({ paused, onSnapshot, onActivity, guide,
     void video.play().then(() => {
       if (generation !== overviewGeneration.current || pausedRef.current || !mountedRef.current) return;
       setOverviewEnabled(true);
+      setLayout(piActiveRef.current ? "both" : "overview");
+      setSnapshotSource("overview");
       watchOverviewFrames(video, generation);
       onActivity?.("Phone camera connected for a direct preview.");
     }).catch(() => {
@@ -324,14 +344,18 @@ export default function CameraWorkspace({ paused, onSnapshot, onActivity, guide,
       setPiFrame(null);
       setPiBusy(wasConnecting);
       setPiToken("");
+      setLayout("overview");
+      setSnapshotSource("overview");
     }
     return wasActive;
   }, []);
 
   const disconnectPi = useCallback(async () => {
+    const mode = piModeRef.current;
     const wasActive = clearPi();
-    if (wasActive) {
-      try { await request("piVideoDisconnect"); }
+    piModeRef.current = null;
+    if (wasActive && mode) {
+      try { await request(mode === "paired" ? "motionDisconnect" : "piVideoDisconnect"); }
       catch (error) { if (mountedRef.current) setPiError(message(error, "The Pi camera could not disconnect.")); }
     }
   }, [clearPi]);
@@ -344,6 +368,10 @@ export default function CameraWorkspace({ paused, onSnapshot, onActivity, guide,
       setSnapshotError("");
     }
   }, [paused, stopOverview, disconnectPi]);
+
+  useEffect(() => {
+    if (reservedForTurret) void disconnectPi();
+  }, [reservedForTurret, disconnectPi]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -359,7 +387,7 @@ export default function CameraWorkspace({ paused, onSnapshot, onActivity, guide,
 
   function watchOverviewFrames(video: HTMLVideoElement, generation: number) {
     if (!("requestVideoFrameCallback" in HTMLVideoElement.prototype)) {
-      const update = () => { if (generation === overviewGeneration.current && !pausedRef.current) lastOverviewFrameAt.current = Date.now(); };
+      const update = () => { if (generation === overviewGeneration.current && !pausedRef.current) { lastOverviewFrameAt.current = Date.now(); inspectOverhead(video); } };
       videoTimeUpdate.current = update;
       video.addEventListener("timeupdate", update);
       return;
@@ -367,9 +395,40 @@ export default function CameraWorkspace({ paused, onSnapshot, onActivity, guide,
     const tick = () => {
       if (!mountedRef.current || generation !== overviewGeneration.current || pausedRef.current || !streamRef.current) return;
       lastOverviewFrameAt.current = Date.now();
+      inspectOverhead(video);
       videoFrameRequest.current = video.requestVideoFrameCallback(tick);
     };
     videoFrameRequest.current = video.requestVideoFrameCallback(tick);
+  }
+
+  function inspectOverhead(video: HTMLVideoElement) {
+    const now = Date.now();
+    if (!straightenOverheadRef.current || now - lastAlignmentAt.current < 1500 || !video.videoWidth || !video.videoHeight) return;
+    lastAlignmentAt.current = now;
+    const canvas = document.createElement("canvas");
+    const scale = Math.min(1, 480 / Math.max(video.videoWidth, video.videoHeight));
+    canvas.width = Math.max(1, Math.round(video.videoWidth * scale));
+    canvas.height = Math.max(1, Math.round(video.videoHeight * scale));
+    try {
+      const context = canvas.getContext("2d", { willReadFrequently: true });
+      if (!context) return;
+      context.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
+      const region = suggestCircuitRegion(pixels, canvas.width, canvas.height);
+      const angle = estimateOverheadTilt(pixels, canvas.width, canvas.height, region ?? undefined);
+      if (angle === null) {
+        alignmentCandidate.current = { angle: 0, count: 0 };
+        setOverheadTilt(0);
+        setAlignmentHint("Board angle unclear. Improve light, move obstructions, or choose a clearer overhead view.");
+      } else {
+        const previous = alignmentCandidate.current;
+        const count = Math.abs(previous.angle - angle) <= 3 ? previous.count + 1 : 1;
+        alignmentCandidate.current = { angle, count };
+        if (count >= 2) { setOverheadTilt(angle); setAlignmentHint(""); }
+      }
+    } catch {
+      setAlignmentHint("Could not assess the overhead angle. The original view is still available for questions.");
+    } finally { canvas.width = canvas.height = 1; }
   }
 
   async function discoverOverview() {
@@ -434,6 +493,8 @@ export default function CameraWorkspace({ paused, onSnapshot, onActivity, guide,
         }
       }, { once: true });
       setOverviewEnabled(true);
+      setLayout(piActiveRef.current ? "both" : "overview");
+      setSnapshotSource("overview");
       watchOverviewFrames(video, generation);
       onActivity?.("Overview camera connected for local preview.");
     } catch (error) {
@@ -451,23 +512,29 @@ export default function CameraWorkspace({ paused, onSnapshot, onActivity, guide,
   async function pollPi(generation: number) {
     if (!mountedRef.current || pausedRef.current || generation !== piGeneration.current || !piActiveRef.current) return;
     try {
-      const latest = await request<{ jpeg_base64?: unknown; received_at?: unknown } | null>("piVideoFrame");
+      const paired = piModeRef.current === "paired";
+      const response = paired
+        ? await request<{ frame?: { jpeg_base64?: unknown; sequence?: unknown } | null }>("motionFrame")
+        : await request<{ jpeg_base64?: unknown; received_at?: unknown } | null>("piVideoFrame");
       if (!mountedRef.current || pausedRef.current || generation !== piGeneration.current || !piActiveRef.current) return;
-      const receivedAt = Number(latest?.received_at);
+      const latest = paired ? (response as { frame?: { jpeg_base64?: unknown } | null })?.frame
+        : response as { jpeg_base64?: unknown; received_at?: unknown } | null;
+      const receivedAt = paired ? Date.now() : Number((response as { received_at?: unknown } | null)?.received_at);
       if (typeof latest?.jpeg_base64 === "string" && latest.jpeg_base64.length > 0 && latest.jpeg_base64.length <= 7_000_000
         && Number.isFinite(receivedAt) && receivedAt <= Date.now() && Date.now() - receivedAt <= FRAME_MAX_AGE_MS) {
         setPiFrame({ url: `data:image/jpeg;base64,${latest.jpeg_base64}`, receivedAt });
       } else {
         setPiFrame(null);
-        const status = await request<{ connected?: boolean; reason?: string }>("piVideoStatus");
+        const status = await request<{ connected?: boolean; reason?: string; message?: string }>(paired ? "motionStatus" : "piVideoStatus");
         if (!mountedRef.current || pausedRef.current || generation !== piGeneration.current || !piActiveRef.current) return;
         if (status.connected !== true) {
-          setPiError(`${status.reason || "The Pi camera stream disconnected."} Check the local tunnel and reconnect with its current token.`);
+          setPiError(paired ? `${status.message || "The paired Pi camera disconnected."} Reconnect the paired camera.`
+            : `${status.reason || "The Pi camera stream disconnected."} Check the local tunnel and reconnect with its current token.`);
           clearPi();
           return;
         }
       }
-      piPollTimer.current = window.setTimeout(() => { void pollPi(generation); }, 250);
+      piPollTimer.current = window.setTimeout(() => { void pollPi(generation); }, paired ? 67 : 250);
     } catch (error) {
       if (generation !== piGeneration.current || !mountedRef.current) return;
       setPiError(message(error, "The Pi video tunnel stopped responding."));
@@ -494,7 +561,10 @@ export default function CameraWorkspace({ paused, onSnapshot, onActivity, guide,
       }
       piConnectingRef.current = false;
       piActiveRef.current = true;
+      piModeRef.current = "tunnel";
       setPiConnected(true);
+      setLayout(streamRef.current ? "both" : "pi");
+      if (!streamRef.current) setSnapshotSource("pi");
       setPiBusy(false);
       void pollPi(generation);
       onActivity?.("Pi camera connected through the local tunnel.");
@@ -508,17 +578,50 @@ export default function CameraWorkspace({ paused, onSnapshot, onActivity, guide,
     }
   }
 
-  async function captureSelected() {
+  async function connectPairedPi() {
+    if (pausedRef.current || reservedForTurretRef.current || piBusy || piActiveRef.current || piConnectingRef.current) return;
+    setPiBusy(true);
+    setPiError("");
+    setPiFrame(null);
+    piConnectingRef.current = true;
+    const generation = ++piGeneration.current;
+    try {
+      const status = await request<{ connected?: boolean; armed?: boolean }>("motionStatus");
+      if (status.armed) throw new Error("Release turret movement before opening its camera in Live help.");
+      const connected = status.connected ? status : await request<{ connected?: boolean; armed?: boolean }>("motionConnect");
+      if (connected.connected !== true || connected.armed) throw new Error("The paired Pi camera did not connect in a released state.");
+      if (generation !== piGeneration.current || pausedRef.current || reservedForTurretRef.current || !mountedRef.current) {
+        await request("motionDisconnect").catch(() => undefined);
+        return;
+      }
+      piModeRef.current = "paired";
+      piConnectingRef.current = false;
+      piActiveRef.current = true;
+      setPiConnected(true);
+      setLayout(streamRef.current ? "both" : "pi");
+      if (!streamRef.current) setSnapshotSource("pi");
+      void pollPi(generation);
+      onActivity?.("Paired Pi camera connected alongside the overview camera.");
+    } catch (error) {
+      if (generation === piGeneration.current && mountedRef.current && !pausedRef.current) {
+        piConnectingRef.current = false;
+        setPiError(message(error, "The paired Pi camera could not connect."));
+      }
+    } finally { if (mountedRef.current) setPiBusy(false); }
+  }
+
+  async function captureSelected(question?: string, requestedSource?: "overview" | "pi") {
     if (pausedRef.current || snapshotBusy) return;
     setSnapshotBusy(true);
     setSnapshotError("");
     try {
+      const source = requestedSource ?? snapshotSource;
       let capture: CameraCapture;
-      if (snapshotSource === "overview") {
+      if (source === "overview") {
         const video = videoRef.current;
         if (!overviewEnabled || !streamRef.current?.getVideoTracks().some((track) => track.readyState === "live") || !video
           || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA || Date.now() - lastOverviewFrameAt.current > FRAME_MAX_AGE_MS) {
-          throw new Error("Wait for a fresh overview camera frame before asking about it.");
+          throw new Error("Wait for a fresh overview camera frame before taking a photo.");
         }
         const manual = Boolean(circuitFocus?.manual && circuitFocus.source === "overview" && circuitFocus.width === video.videoWidth && circuitFocus.height === video.videoHeight);
         const region = manual && circuitFocus ? circuitFocus.region : suggestMediaRegion(video);
@@ -526,9 +629,9 @@ export default function CameraWorkspace({ paused, onSnapshot, onActivity, guide,
         capture = { data_url: snapshotDataUrl(video), source: "overview", captured_at: Date.now(), ...(region && focusCloseUp ? { focus_region: region } : {}) };
       } else {
         const frame = piFrame;
-        if (!piConnected || !frame || Date.now() - frame.receivedAt > FRAME_MAX_AGE_MS) throw new Error("Wait for a fresh Pi camera frame before asking about it.");
+        if (!piConnected || !frame || Date.now() - frame.receivedAt > FRAME_MAX_AGE_MS) throw new Error("Wait for a fresh Turret camera frame before capturing it.");
         const image = await decodeJpeg(frame.url);
-        if (pausedRef.current || !piActiveRef.current || Date.now() - frame.receivedAt > FRAME_MAX_AGE_MS) throw new Error("That Pi frame is no longer current. Try again.");
+        if (pausedRef.current || !piActiveRef.current || Date.now() - frame.receivedAt > FRAME_MAX_AGE_MS) throw new Error("That Turret frame is no longer current. Try again.");
         const manual = Boolean(circuitFocus?.manual && circuitFocus.source === "pi" && circuitFocus.width === image.naturalWidth && circuitFocus.height === image.naturalHeight);
         const region = manual && circuitFocus ? circuitFocus.region : suggestMediaRegion(image);
         setCircuitFocus(region ? { source: "pi", region, width: image.naturalWidth, height: image.naturalHeight, manual } : null);
@@ -536,8 +639,9 @@ export default function CameraWorkspace({ paused, onSnapshot, onActivity, guide,
       }
       if (pausedRef.current || !mountedRef.current) return;
       setPickCloseUp(false);
-      await onSnapshot(capture);
-      if (mountedRef.current) onActivity?.(`Selected ${capture.source === "pi" ? "Pi" : "overview"} snapshot sent for this question.`);
+      if (focusedRef.current) await exitFocus();
+      await onSnapshot(capture, question);
+      if (mountedRef.current) onActivity?.(`${capture.source === "pi" ? "Turret" : "Overview"} photo ready in Photo help.`);
     } catch (error) {
       if (mountedRef.current) setSnapshotError(message(error, "The selected frame could not be sent."));
     } finally {
@@ -553,6 +657,23 @@ export default function CameraWorkspace({ paused, onSnapshot, onActivity, guide,
     && circuitFocus.width === videoRef.current?.videoWidth && circuitFocus.height === videoRef.current?.videoHeight ? circuitFocus.region : undefined;
   const piRegion = focusCloseUp && freshPiFrame && circuitFocus?.source === "pi"
     && circuitFocus.width === piImageRef.current?.naturalWidth && circuitFocus.height === piImageRef.current?.naturalHeight ? circuitFocus.region : undefined;
+  const straightenZoom = straightenOverhead && overheadTilt
+    ? 1 + Math.min(.55, Math.abs(Math.sin(overheadTilt * Math.PI / 180)) * .9)
+    : 1;
+
+  function toggleOverviewCamera() {
+    if (overviewEnabled) {
+      stopAllOverview();
+      void request("disableCamera").catch(() => undefined);
+      return;
+    }
+    void connectOverview();
+  }
+
+  function toggleTurretCamera() {
+    if (piConnected) void disconnectPi();
+    else void connectPairedPi();
+  }
 
   function chooseCloseUp(source: "overview" | "pi", x: number, y: number, container: HTMLElement) {
     const media = source === "overview" ? videoRef.current : piImageRef.current;
@@ -560,7 +681,7 @@ export default function CameraWorkspace({ paused, onSnapshot, onActivity, guide,
     const width = media instanceof HTMLVideoElement ? media.videoWidth : media.naturalWidth;
     const height = media instanceof HTMLVideoElement ? media.videoHeight : media.naturalHeight;
     if (!width || !height) return;
-    const bounds = container.getBoundingClientRect();
+    const bounds = { width: container.clientWidth, height: container.clientHeight };
     const region = source === "overview" ? overviewRegion : piRegion;
     const point = pointInFrame(x, y, framedImageBox(bounds.width, bounds.height, width, height, region), region);
     if (!point) return;
@@ -575,8 +696,7 @@ export default function CameraWorkspace({ paused, onSnapshot, onActivity, guide,
   function closeUpPicker(source: "overview" | "pi") {
     return pickCloseUp && snapshotSource === source ? <button type="button" className="camera-closeup-picker" aria-label="Choose the center of the circuit close-up"
       onClick={event => {
-        const box = event.currentTarget.getBoundingClientRect();
-        chooseCloseUp(source, event.clientX - box.left, event.clientY - box.top, event.currentTarget);
+        chooseCloseUp(source, event.nativeEvent.offsetX, event.nativeEvent.offsetY, event.currentTarget);
       }} onKeyDown={event => {
         if (event.key === "Enter" || event.key === " ") {
           event.preventDefault();
@@ -589,82 +709,74 @@ export default function CameraWorkspace({ paused, onSnapshot, onActivity, guide,
     <header className="camera-workspace-head">
       <div className="camera-workspace-title">
         {focused && <button ref={focusButtonRef} type="button" className="camera-workspace-focus-button camera-workspace-exit" onClick={() => void exitFocus()}><span aria-hidden="true">← </span>Exit full screen</button>}
-        <div><h1>Live help</h1><p>Choose a camera to preview. Send one frame only when you ask about this view.</p></div>
+        <div><h1>Live help</h1></div>
       </div>
-      <div className="camera-workspace-head-actions"><div className="camera-workspace-layout" role="group" aria-label="Camera layout">
-        <button type="button" className={layout === "overview" ? "selected" : ""} onClick={() => { setLayout("overview"); setSnapshotSource("overview"); }} aria-pressed={layout === "overview"}>Overview</button>
-        <button type="button" className={layout === "both" ? "selected" : ""} onClick={() => setLayout("both")} aria-pressed={layout === "both"}>Both</button>
-        <button type="button" className={layout === "pi" ? "selected" : ""} onClick={() => { setLayout("pi"); setSnapshotSource("pi"); }} aria-pressed={layout === "pi"}>Pi close-up</button>
-      </div><button type="button" className="camera-workspace-subtitles-button" onClick={toggleSubtitles} aria-pressed={subtitlesEnabled ?? localSubtitlesEnabled}>{(subtitlesEnabled ?? localSubtitlesEnabled) ? "Subtitles on" : "Subtitles off"}</button>{!focused && <button ref={focusButtonRef} type="button" className="camera-workspace-focus-button" onClick={() => void enterFocus()}>Full screen</button>}</div>
+      <div className="camera-workspace-head-actions"><div className="camera-workspace-power" role="group" aria-label="Camera power">
+      <button type="button" className={overviewEnabled ? "is-turn-off" : "is-turn-on"} onClick={toggleOverviewCamera} disabled={paused || overviewBusy || (!overviewEnabled && !selectedDevice)} title={!overviewEnabled && !selectedDevice ? "Choose a Windows camera under Camera setup, or connect a phone from the overview feed." : undefined}>{overviewBusy ? "Overview starting…" : overviewEnabled ? "Turn off overview" : "Turn on overview"}</button>
+        <button type="button" className={piConnected ? "is-turn-off" : "is-turn-on"} onClick={toggleTurretCamera} disabled={paused || piBusy || reservedForTurret}>{piBusy ? "Turret starting…" : piConnected ? "Turn off Turret" : "Turn on Turret"}</button>
+      </div>
+      <button type="button" className="button primary small camera-workspace-photo-action" onClick={() => void captureSelected(undefined, "overview")} disabled={paused || snapshotBusy || !overviewEnabled} title={!overviewEnabled ? "Turn on the overview camera first." : undefined}>{snapshotBusy ? "Preparing photo…" : "Take photo for Photo help"}<span>→</span></button>
+      <button type="button" className="camera-workspace-subtitles-button" onClick={toggleSubtitles} aria-pressed={subtitlesEnabled ?? localSubtitlesEnabled}>{(subtitlesEnabled ?? localSubtitlesEnabled) ? "Subtitles on" : "Subtitles off"}</button>{!focused && <button ref={focusButtonRef} type="button" className="camera-workspace-focus-button" onClick={() => void enterFocus()}>Full screen</button>}</div>
     </header>
 
     <div className={`camera-workspace-stage camera-workspace-stage-${layout}`}>
       <div className="camera-workspace-feed camera-workspace-overview">
-        <CameraFraming region={overviewRegion} width={videoRef.current?.videoWidth ?? 0} height={videoRef.current?.videoHeight ?? 0}>
-          <video ref={videoRef} autoPlay muted playsInline className={overviewEnabled ? "is-visible" : ""} aria-label="Local overview camera preview" />
-        </CameraFraming>
-        {overviewEnabled && closeUpPicker("overview")}
-        <VisionOverlay source="overview" region={overviewRegion} enabled={trackingEnabled && !pickCloseUp && snapshotSource === "overview" && overviewEnabled && !paused}
-          getFrame={() => videoRef.current && videoRef.current.readyState >= 2 && Date.now() - lastOverviewFrameAt.current <= 1000
-            ? { media: videoRef.current, stamp: videoRef.current.currentTime } : null} />
-        {!overviewEnabled && <div className="camera-workspace-empty"><span className="camera-workspace-empty-icon">◉</span><strong>Overview camera is off</strong><span>Connect your phone below, or choose a Windows camera.</span></div>}
+        <div className={`camera-workspace-aligned${straightenOverhead ? " is-straightened" : ""}`} style={straightenOverhead && overheadTilt ? { transform: `rotate(${-overheadTilt}deg) scale(${straightenZoom})` } : undefined}>
+          <CameraFraming region={overviewRegion} width={videoRef.current?.videoWidth ?? 0} height={videoRef.current?.videoHeight ?? 0}>
+            <video ref={videoRef} autoPlay muted playsInline className={overviewEnabled ? "is-visible" : ""} aria-label="Local overview camera preview" />
+          </CameraFraming>
+          {overviewEnabled && closeUpPicker("overview")}
+          <VisionOverlay source="overview" region={overviewRegion} enabled={trackingEnabled && !pickCloseUp && snapshotSource === "overview" && overviewEnabled && !paused}
+            getFrame={() => videoRef.current && videoRef.current.readyState >= 2 && Date.now() - lastOverviewFrameAt.current <= 1000
+              ? { media: videoRef.current, stamp: videoRef.current.currentTime } : null} />
+        </div>
+        {!overviewEnabled && <div className="camera-workspace-empty"><span className="camera-workspace-empty-icon">◉</span><strong>Overview camera is off</strong></div>}
+        <PhoneLiveCamera paused={paused} stopSignal={phoneStopSignal} showLauncher={!overviewEnabled}
+          onPreparing={preparePhone} onStream={acceptPhoneStream} />
         <div className="camera-workspace-feed-label"><span className={overviewEnabled ? "camera-workspace-dot is-live" : "camera-workspace-dot"} /> {overviewKind === "phone" ? "Phone" : "Overview"} <small>{overviewEnabled ? `Direct preview · ${overviewResolution}` : "Not connected"}</small></div>
       </div>
       <div className="camera-workspace-feed camera-workspace-pi">
-        {freshPiFrame ? <CameraFraming region={piRegion} width={piImageRef.current?.naturalWidth ?? 0} height={piImageRef.current?.naturalHeight ?? 0}><img ref={piImageRef} src={freshPiFrame.url} alt="Latest Raspberry Pi camera frame" /></CameraFraming> : <div className="camera-workspace-empty"><span className="camera-workspace-empty-icon">◎</span><strong>{piConnected ? "Waiting for a current frame" : "Pi camera is off"}</strong><span>{piConnected ? "The preview clears when the frame is stale." : "Connect through an existing local tunnel."}</span></div>}
+        {freshPiFrame ? <CameraFraming region={piRegion} width={piImageRef.current?.naturalWidth ?? 0} height={piImageRef.current?.naturalHeight ?? 0}><img ref={piImageRef} src={freshPiFrame.url} alt="Latest Turret camera frame" /></CameraFraming> : <div className="camera-workspace-empty"><span className="camera-workspace-empty-icon">◎</span><strong>{piConnected ? "Waiting for a current frame" : "Turret camera is off"}</strong><span>{piConnected ? "The preview clears when the frame is stale." : "Turn on the Turret camera from the top menu."}</span></div>}
         {freshPiFrame && closeUpPicker("pi")}
         <VisionOverlay source="pi" region={piRegion} enabled={trackingEnabled && !pickCloseUp && snapshotSource === "pi" && Boolean(freshPiFrame) && !paused}
           getFrame={() => freshPiFrame && piImageRef.current?.complete && piImageRef.current.naturalWidth > 0 && Date.now() - freshPiFrame.receivedAt <= 1000
             ? { media: piImageRef.current, stamp: freshPiFrame.receivedAt } : null} />
-        <div className="camera-workspace-feed-label"><span className={freshPiFrame ? "camera-workspace-dot is-live" : "camera-workspace-dot"} /> Pi close-up <small>{freshPiFrame ? "Current frame" : piConnected ? "No current frame" : "Not connected"}</small></div>
+        <div className="camera-workspace-feed-label"><span className={freshPiFrame ? "camera-workspace-dot is-live" : "camera-workspace-dot"} /> Turret <small>{freshPiFrame ? "Current frame" : piConnected ? "No current frame" : "Not connected"}</small></div>
       </div>
-      {focused && guide && <div className="camera-workspace-focus-guide" aria-label="Guide companion">{guide}</div>}
+      {voiceControl && <div className="camera-workspace-voice-control">{typeof voiceControl === "function" ? voiceControl(captureSelected) : voiceControl}</div>}
+      {guide && <div className="camera-workspace-focus-guide" aria-label="Guide companion">{guide}</div>}
       {(subtitlesEnabled ?? localSubtitlesEnabled) && caption?.trim() && <p className="camera-workspace-focus-caption" aria-label="Camera subtitles" aria-live="polite" tabIndex={0}>{caption}</p>}
     </div>
 
     {focused && <div className="camera-workspace-focus-bar"><span>{paused ? "Previews stopped" : overviewEnabled || freshPiFrame ? "Camera preview · local" : "No camera connected"}</span><div>{speechPending && onStopSpeaking && <button type="button" onClick={onStopSpeaking}>Stop speaking</button>}<button type="button" onClick={toggleSubtitles} aria-pressed={subtitlesEnabled ?? localSubtitlesEnabled}>{(subtitlesEnabled ?? localSubtitlesEnabled) ? "Subtitles on" : "Subtitles off"}</button><button type="button" onClick={() => { stopAllOverview(); void disconnectPi(); onPause?.(); }} disabled={paused}>Pause previews</button><button type="button" onClick={() => void exitFocus()}>Exit full screen</button></div></div>}
 
-    <div className="camera-workspace-bottom">
-      <div className="camera-workspace-capture">
-        <label htmlFor="camera-workspace-source">Ask about</label>
-        <select id="camera-workspace-source" value={snapshotSource} onChange={(event) => { const source = event.target.value as "overview" | "pi"; setSnapshotSource(source); if (layout !== "both") setLayout(source); }}>
-          <option value="overview">Overview camera</option><option value="pi">Pi close-up</option>
-        </select>
-        <button type="button" className="camera-workspace-ask" onClick={() => void captureSelected()} disabled={paused || snapshotBusy || !currentSource}>{snapshotBusy ? "Preparing frame…" : "Ask about this view"}<span aria-hidden="true">↗</span></button>
-      </div>
-      <p>Only your selected snapshot is shared for this question. Preview is not continuous analysis.</p>
-    </div>
     {snapshotError && <p className="camera-workspace-error" role="status">{snapshotError}</p>}
     <div className="camera-closeup-controls">
       {circuitFocus && <button type="button" className="camera-workspace-focus-button" onClick={() => { setFocusCloseUp(value => !value); setPickCloseUp(false); }}>{focusCloseUp ? "Whole camera view" : "Circuit close-up"}</button>}
       <button type="button" className="camera-workspace-focus-button" disabled={!currentSource || paused} aria-pressed={pickCloseUp} onClick={() => setPickCloseUp(value => !value)}>{pickCloseUp ? "Cancel close-up selection" : "Choose close-up"}</button>
-      <small>{circuitFocus && focusCloseUp ? "Suggested close-up · the whole snapshot is kept for context." : "Ask automatically enlarges a clear circuit area. You can also choose its center."}</small>
+      <small>{circuitFocus && focusCloseUp ? "Suggested close-up · the whole snapshot is kept for context." : "Photos automatically enlarge a clear circuit area. You can also choose its center."}</small>
     </div>
+    <div className="camera-overhead-controls"><button type="button" className="camera-workspace-focus-button" aria-pressed={straightenOverhead} onClick={() => { setStraightenOverhead(value => !value); setOverheadTilt(0); setAlignmentHint(""); lastAlignmentAt.current = 0; }}>Auto straighten overhead {straightenOverhead ? "on" : "off"}</button><small>{straightenOverhead && overheadTilt ? `Display rotated ${Math.abs(overheadTilt).toFixed(0)}° and zoomed to fill; snapshots keep original pixels.` : alignmentHint || "Straightens and crops a clear board angle so the background stays out of view."}</small></div>
     <div className="camera-vision-controls">
       <button type="button" className="button secondary small" disabled={paused || !currentSource} aria-pressed={trackingEnabled}
         onClick={() => setTrackingEnabled(value => !value)}>{trackingEnabled ? "Stop visual tracking" : "Track a point locally"}</button>
-      <p>Follow a selected feature in the chosen view. Frames stay on this computer; Ask sends a separate snapshot for circuit help.</p>
+      <p>Follow a selected feature in the chosen view. Frames stay on this computer; the question workspace uses a separate snapshot.</p>
     </div>
 
-    <PhoneLiveCamera paused={paused} stopSignal={phoneStopSignal} resolution={overviewResolution} onPreparing={preparePhone} onStream={acceptPhoneStream} />
     <details className="camera-workspace-setup">
-      <summary>Camera setup <span>{overviewEnabled ? selectedCameraName || "Overview connected" : "Overview off"} · {piConnected ? "Pi connected" : "Pi off"}</span></summary>
+      <summary>Camera setup <span>{overviewEnabled ? selectedCameraName || "Overview connected" : "Overview off"} · {piConnected ? "Turret connected" : "Turret off"}</span></summary>
       <div className="camera-workspace-setup-grid">
         <div className="camera-workspace-setup-card"><h3>Overview camera</h3><p>Windows camera input, including USB or a Camo virtual camera if one is installed.</p>
           {devices.length > 0 && <label>Camera device<select value={selectedDevice} disabled={overviewEnabled || overviewBusy} onChange={(event) => setSelectedDevice(event.target.value)}><option value="">Choose a camera…</option>{devices.map((device) => <option key={device.deviceId} value={device.deviceId}>{device.label}</option>)}</select></label>}
-          <div className="camera-workspace-setup-actions">
-            {overviewEnabled ? <button type="button" onClick={() => { stopAllOverview(); void request("disableCamera").catch(() => undefined); }} disabled={paused}>Disconnect overview</button> : <><button type="button" onClick={() => void discoverOverview()} disabled={paused || overviewBusy}>{overviewBusy ? "Checking…" : devices.length ? "Refresh cameras" : "Enable & list cameras"}</button><button type="button" onClick={() => void connectOverview()} disabled={paused || overviewBusy || !selectedDevice}>Connect selected</button></>}
-          </div>
+          {!overviewEnabled && <div className="camera-workspace-setup-actions"><button type="button" onClick={() => void discoverOverview()} disabled={paused || overviewBusy}>{overviewBusy ? "Checking…" : devices.length ? "Refresh cameras" : "Enable & list cameras"}</button></div>}
           {overviewError && <p className="camera-workspace-error" role="status">{overviewError}</p>}
         </div>
-        <div className="camera-workspace-setup-card"><h3>Pi close-up</h3><p>Requires a prepared localhost video tunnel and its per-launch token. No motors or laser are enabled.</p>
-          {!piConnected && <div className="camera-workspace-pi-fields"><label>Local port<input type="number" min="1024" max="65535" value={piPort} disabled={piBusy} onChange={(event) => setPiPort(event.target.value)} /></label><label>Video token<input type="password" autoComplete="off" value={piToken} disabled={piBusy} onChange={(event) => setPiToken(event.target.value)} placeholder="Per-launch token" /></label></div>}
-          <div className="camera-workspace-setup-actions">{piConnected ? <button type="button" onClick={() => void disconnectPi()}>Disconnect Pi</button> : <button type="button" onClick={() => void connectPi()} disabled={paused || piBusy || !piToken || !piPort}>{piBusy ? "Connecting…" : "Connect Pi camera"}</button>}</div>
+        <div className="camera-workspace-setup-card"><h3>Turret</h3><p>Use the Turret camera alongside the overhead preview. Turning it on leaves movement released; it does not enable the laser.</p>
+          {!piConnected && <details className="camera-workspace-legacy-pi"><summary>Use an existing video tunnel</summary><div className="camera-workspace-pi-fields"><label>Local port<input type="number" min="1024" max="65535" value={piPort} disabled={piBusy} onChange={(event) => setPiPort(event.target.value)} /></label><label>Video token<input type="password" autoComplete="off" value={piToken} disabled={piBusy} onChange={(event) => setPiToken(event.target.value)} placeholder="Per-launch token" /></label></div><button type="button" onClick={() => void connectPi()} disabled={paused || piBusy || !piToken || !piPort}>Connect video tunnel</button></details>}
           {piError && <p className="camera-workspace-error" role="status">{piError}</p>}
         </div>
       </div>
     </details>
-    {helpPanel && <aside className="camera-workspace-help-drawer" aria-label="Photo help review">{helpPanel}</aside>}
     {paused && <p className="camera-workspace-paused">Session paused · camera previews are stopped.</p>}
   </section>;
 }

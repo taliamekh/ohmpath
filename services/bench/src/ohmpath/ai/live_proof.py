@@ -45,28 +45,64 @@ class Protocol:
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
         self.queue: queue.Queue[dict[str, Any]] = queue.Queue(maxsize=512)
+        self._available = threading.Condition()
+        self._terminal_error: str | None = None
         self.notifications: list[dict[str, Any]] = []
         self.next_id = 1
         threading.Thread(target=self._read, daemon=True).start()
 
     def _read(self) -> None:
-        assert self.process.stdout is not None
-        while True:
-            line = self.process.stdout.readline(256_001)
-            if not line or len(line) > 256_000 or not line.endswith("\n"):
-                break
-            try:
-                value = json.loads(line)
+        try:
+            assert self.process.stdout is not None
+            while True:
+                line = self.process.stdout.readline(256_001)
+                if not line:
+                    raise ProofFailure("app_server_closed")
+                if len(line) > 256_000:
+                    raise ProofFailure("overlong_app_server_event")
+                if not line.endswith("\n"):
+                    raise ProofFailure("invalid_app_server_event")
+                try:
+                    value = json.loads(line)
+                except (ValueError, RecursionError) as error:
+                    raise ProofFailure("invalid_app_server_event") from error
                 if not isinstance(value, dict):
-                    break
-                self.queue.put_nowait(value)
-            except (ValueError, queue.Full):
-                break
+                    raise ProofFailure("invalid_app_server_event")
+                with self._available:
+                    if self._terminal_error is not None:
+                        return
+                    try:
+                        self.queue.put_nowait(value)
+                    except queue.Full as error:
+                        raise ProofFailure("turn_stream_limit") from error
+                    self._available.notify_all()
+        except ProofFailure as error:
+            self._fail_reader(str(error))
+        except UnicodeError:
+            self._fail_reader("invalid_app_server_event")
+        except Exception:
+            # A pipe/decoder failure must wake consumers, even when all queue
+            # slots contain earlier events. Never expose child output/errors.
+            self._fail_reader("app_server_read_failed")
+
+    def _fail_reader(self, code: str) -> None:
+        with self._available:
+            if self._terminal_error is None:
+                self._terminal_error = code
+            self._available.notify_all()
 
     def send(self, value: dict[str, Any]) -> None:
+        with self._available:
+            if self._terminal_error is not None:
+                raise ProofFailure(self._terminal_error)
         assert self.process.stdin is not None
-        self.process.stdin.write(json.dumps(value, separators=(",", ":")) + "\n")
-        self.process.stdin.flush()
+        encoded = json.dumps(value, separators=(",", ":")) + "\n"
+        try:
+            self.process.stdin.write(encoded)
+            self.process.stdin.flush()
+        except (OSError, ValueError) as error:
+            self._fail_reader("app_server_closed")
+            raise ProofFailure("app_server_closed") from error
 
     def request(self, method: str, params: dict[str, Any] | None = None, timeout: float = 10) -> dict[str, Any]:
         request_id = self.next_id
@@ -86,15 +122,30 @@ class Protocol:
         raise ProofFailure(f"app_server_rpc_timeout:{method}")
 
     def receive(self, timeout: float) -> dict[str, Any]:
-        try:
-            event = self.queue.get(timeout=timeout)
-        except queue.Empty as error:
-            raise ProofFailure("app_server_event_timeout") from error
+        deadline = time.monotonic() + timeout
+        with self._available:
+            while True:
+                try:
+                    event = self.queue.get_nowait()
+                    break
+                except queue.Empty:
+                    if self._terminal_error is not None:
+                        raise ProofFailure(self._terminal_error)
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        raise ProofFailure("app_server_event_timeout")
+                    self._available.wait(remaining)
         if not isinstance(event, dict):
             raise ProofFailure("invalid_app_server_event")
         return event
 
+    def next_notification(self, timeout: float) -> dict[str, Any]:
+        # RPC-buffered events precede events still in the reader queue. A final
+        # valid completion remains readable before a following stream failure.
+        return self.notifications.pop(0) if self.notifications else self.receive(timeout)
+
     def close(self) -> None:
+        self._fail_reader("app_server_closed")
         if self.process.poll() is None:
             self.process.terminate()
             try:

@@ -23,7 +23,8 @@ from .photo_runtime import run_photo_turn
 
 MAX_IMAGE_BYTES = 2_000_000
 MAX_PIXELS = 8_000_000
-GENERIC_FAILURE_MESSAGE = "Photo help stopped without a validated answer. Please retry."
+GENERIC_FAILURE_MESSAGE = ("Photo help could not validate an answer. Please retry with a narrower question; "
+                           "if part labels or connections are hidden, improve the view. If it repeats, check the Codex connection.")
 FAILURE_MESSAGES = {
     "not_chatgpt_subscription": "Sign in to Codex with a ChatGPT subscription, then try again.",
     "astra_capability_unavailable": "The required image-capable Codex model is unavailable. Check model access, then try again.",
@@ -36,6 +37,18 @@ FAILURE_MESSAGES = {
     "cannot_disable_inherited_mcp": "Photo help could not restrict inherited Codex tools. Check the configuration, then try again.",
     "conflicting_inherited_mcp": "Photo help could not restrict inherited Codex tools. Check the configuration, then try again.",
     "turn_timeout": "Photo help timed out. Try again.",
+    "turn_failed_or_interrupted": "Codex stopped before finishing the image answer. Retry this snapshot; if it repeats, check the Codex connection and allowance.",
+    "app_server_event_timeout": "Codex stopped responding during the image answer. Check the connection, then retry the current snapshot.",
+    "app_server_closed": "The Codex connection closed before the image answer finished. Retry the current snapshot.",
+    "app_server_read_failed": "Ohm Path could not read the Codex response. Reopen Ohm Path, then retry the current snapshot.",
+    "invalid_thread_id": "Codex could not start an image conversation. Reopen Ohm Path, then try again.",
+    "invalid_turn_id": "Codex did not start an image answer. Reopen Ohm Path, then try again.",
+    "invalid_turn_items": "Codex returned an incomplete image answer. Retry with the current images.",
+    "invalid_app_server_event": "Codex sent an unreadable image-answer event. Retry; if this repeats, check the installed Codex version.",
+    "overlong_app_server_event": "Codex sent too much image-answer data. Ask a narrower question about the same images.",
+    "turn_stream_limit": "The image answer exceeded its response limit. Ask a narrower question about the current images.",
+    "turn_item_limit": "The image answer exceeded its item limit. Ask a narrower question about the current images.",
+    "invalid_photo_input": "The selected image could not be read. Capture a fresh, clear image and try again.",
     "invalid_model_output": "The answer could not be validated for these images. Ask again with the current images.",
     "stale_photo_output": "The answer did not match the current images. Ask again with the current images.",
     "unexpected_server_request": "Photo help stopped an unexpected model action. Check Codex settings, then try again.",

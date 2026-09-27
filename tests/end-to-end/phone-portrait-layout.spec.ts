@@ -10,11 +10,9 @@ async function geometry(page: Page) {
     const stage = workspace.querySelector('.camera-workspace-stage')!;
     const feed = workspace.querySelector('.camera-workspace-overview')!;
     const video = feed.querySelector('video')!;
-    const ask = workspace.querySelector('.camera-workspace-ask')!;
     const stageBox = stage.getBoundingClientRect();
     const feedBox = feed.getBoundingClientRect();
     const videoBox = video.getBoundingClientRect();
-    const askBox = ask.getBoundingClientRect();
     const scale = Math.min(videoBox.width / video.videoWidth, videoBox.height / video.videoHeight);
     return {
       stage: { width: stageBox.width, height: stageBox.height, bottom: stageBox.bottom },
@@ -23,7 +21,6 @@ async function geometry(page: Page) {
         decodedWidth: video.videoWidth, decodedHeight: video.videoHeight,
         visibleWidth: video.videoWidth * scale, visibleHeight: video.videoHeight * scale,
         objectFit: getComputedStyle(video).objectFit },
-      askTop: askBox.top,
     };
   });
 }
@@ -48,7 +45,7 @@ test('portrait and landscape phone frames stay inside the camera stage and full-
     const context = browser.contexts()[0];
     const laptop = context.pages()[0] || await context.waitForEvent('page');
     const camera = laptop.getByRole('region', { name: 'Camera workspace' });
-    await camera.getByRole('button', { name: 'Connect phone camera', exact: true }).click();
+    await camera.getByRole('button', { name: 'Connect phone as camera', exact: true }).click();
     await expect(camera.getByRole('img', { name: 'Scan to connect your phone camera to Ohm Path' })).toBeVisible({ timeout: 20000 });
     await laptop.evaluate(() => (window as any).ohmpath.request('testPhoneOpen'));
     const phone = context.pages().find(page => page.url().startsWith('http://127.0.0.1:'))!;
@@ -84,23 +81,10 @@ test('portrait and landscape phone frames stay inside the camera stage and full-
     expect(portrait.video.visibleWidth / portrait.video.visibleHeight).toBeCloseTo(
       portrait.video.decodedWidth / portrait.video.decodedHeight, 3);
     expect(portrait.video.width - portrait.video.visibleWidth).toBeGreaterThan(100);
-    expect(portrait.askTop).toBeGreaterThanOrEqual(portrait.stage.bottom);
-    await expect(camera.getByRole('button', { name: 'Ask about this view' })).toBeVisible();
+    await expect(camera.getByRole('button', { name: 'Take photo for Photo help' })).toBeVisible();
+    await expect(camera.getByRole('group', { name: 'Camera layout' })).toHaveCount(0);
 
     await laptop.setViewportSize({ width: 800, height: 900 });
-    await camera.getByRole('button', { name: 'Both', exact: true }).click();
-    const both = await geometry(laptop);
-    expect(both.stage.height).toBeLessThanOrEqual(721);
-    expect(both.feed.height).toBeLessThanOrEqual(both.stage.height);
-    const rows = await camera.locator('.camera-workspace-stage').evaluate(stage => {
-      const first = stage.querySelector('.camera-workspace-overview')!.getBoundingClientRect();
-      const second = stage.querySelector('.camera-workspace-pi')!.getBoundingClientRect();
-      return { firstBottom: first.bottom, secondTop: second.top, secondBottom: second.bottom,
-        stageBottom: stage.getBoundingClientRect().bottom };
-    });
-    expect(rows.secondTop).toBeGreaterThanOrEqual(rows.firstBottom);
-    expect(rows.secondBottom).toBeLessThanOrEqual(rows.stageBottom);
-    await camera.getByRole('button', { name: 'Overview', exact: true }).click();
     await camera.getByRole('button', { name: 'Full screen', exact: true }).click();
     await expect(camera).toHaveClass(/is-focused/);
     const focused = await geometry(laptop);
@@ -134,7 +118,7 @@ test('portrait and landscape phone frames stay inside the camera stage and full-
       element.srcObject = streams.original;
       streams.landscape.getTracks().forEach((track: MediaStreamTrack) => track.stop());
     });
-    await camera.getByRole('button', { name: 'Disconnect phone', exact: true }).click();
+    await camera.getByRole('button', { name: 'Turn off overview', exact: true }).click();
   } finally {
     await browser?.close().catch(() => undefined);
     desktop.kill();

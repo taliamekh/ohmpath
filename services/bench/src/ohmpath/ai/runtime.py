@@ -15,6 +15,8 @@ import time
 from pathlib import Path
 from typing import Any
 
+from ohmpath.devices.uno_r3_indicators import PHOTO_GUIDANCE
+
 from .bridge import LocalBenchAuthority, NarrowToolBridge, TOOLS, ToolDenied
 from .codex import EFFORT, MIN_REMAINING_PERCENT, MODEL, ProtocolError
 from .live_proof import Protocol, ProofFailure, check_configuration, remaining_percent, restricted_command
@@ -188,6 +190,7 @@ def run_investigation(
                 "to call propose_test. Choose only graph node IDs. Never confirm a measurement or control hardware. "
                 "Return ONLY JSON with exactly circuit_revision, explanation, evidence_ids, proposed_test_id. "
                 f"{EXPLANATION_PRESENTATION}"
+                f"{PHOTO_GUIDANCE + ' ' if reviewed_image is not None else ''}"
                 f"Use session_id={sid} and circuit_revision={circuit_revision} for every tool call. "
                 f"User question: {question}"
             )

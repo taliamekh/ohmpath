@@ -5,8 +5,6 @@ const { trustedTunnelUrl } = require('./phone-live-tunnel.cjs');
 const MAX_BODY = 80 * 1024;
 const MAX_SDP = 64 * 1024;
 const READ_MS = 10_000;
-const WAIT_MS = 10 * 60_000;
-const LIVE_MS = 120 * 60_000;
 const DESKTOP_MS = 20_000;
 const INITIAL_DESKTOP_MS = 35_000;
 const PHONE_MS = 15_000;
@@ -98,13 +96,12 @@ function createPhoneLiveBridge({ tunnelFactory, pageFactory = () => '<!doctype h
     if (!current) return { ...base, active: false, session_id: '',
       state: portal ? 'idle' : last.state, answer: null, expires_at: null };
     return { ...base, active: true, session_id: current.id, state: current.state,
-      answer: current.answer, expires_at: new Date(current.expiresAt).toISOString() };
+      answer: current.answer, expires_at: null };
   }
 
   function expired(session) {
     const time = now();
-    return time >= session.expiresAt
-      || time - session.startedAt > INITIAL_DESKTOP_MS && time - session.lastDesktop > DESKTOP_MS
+    return time - session.startedAt > INITIAL_DESKTOP_MS && time - session.lastDesktop > DESKTOP_MS
       || session.state === 'answered' && time - session.lastPhone > PHONE_MS;
   }
 
@@ -187,7 +184,7 @@ function createPhoneLiveBridge({ tunnelFactory, pageFactory = () => '<!doctype h
       if (!current) return json(res, 200, { active: false, state: 'idle', session_id: '' });
       current.lastPhone = time;
       return json(res, 200, { active: true, session_id: current.id, offer: current.offer,
-        state: current.state, expires_at: new Date(current.expiresAt).toISOString() });
+        state: current.state, expires_at: null });
     }
     if (oneHeader(req, 'origin') !== p.origin)
       return json(res, 403, { error: 'Phone camera session unavailable.' });
@@ -232,7 +229,6 @@ function createPhoneLiveBridge({ tunnelFactory, pageFactory = () => '<!doctype h
     session.answer = { type: 'answer', sdp: body.answer.sdp };
     session.state = 'answered';
     session.lastPhone = now();
-    session.expiresAt = Math.min(session.startedAt + LIVE_MS, session.expiresAt + LIVE_MS);
     return json(res, 200, { accepted: true, session_id: session.id });
   }
 
@@ -320,7 +316,14 @@ function createPhoneLiveBridge({ tunnelFactory, pageFactory = () => '<!doctype h
     const time = now();
     current = { id: randomUUID(), offer: { type: 'offer', sdp: offer.sdp },
       answer: null, clientId: null, state: 'waiting', startedAt: time,
-      lastDesktop: time, lastPhone: time, expiresAt: time + WAIT_MS };
+      lastDesktop: time, lastPhone: time };
+    return snapshot();
+  }
+
+  async function open() {
+    const p = portal || createPortal();
+    await p.ready;
+    if (portal !== p) throw new Error('Phone camera connection was cancelled.');
     return snapshot();
   }
 
@@ -338,7 +341,7 @@ function createPhoneLiveBridge({ tunnelFactory, pageFactory = () => '<!doctype h
     return snapshot();
   }
 
-  return { start, status, stop, shutdown };
+  return { open, start, status, stop, shutdown };
 }
 
 module.exports = { createPhoneLiveBridge };

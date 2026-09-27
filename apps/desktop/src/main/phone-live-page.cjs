@@ -19,7 +19,7 @@ label{display:block;font-size:14px;font-weight:700;margin:15px 0 7px}select{widt
 <label for="quality">Video quality</label><select id="quality"><option value="1080">Full detail · 1080p</option><option value="720">Steadier connection · 720p</option></select>
 <button id="start" class="start" type="button">Start rear camera</button><button id="stop" class="stop" type="button" disabled>Stop camera</button>
 <p id="status" class="status" role="status" aria-live="polite">Tap Start after connecting the phone camera on your laptop.</p><p id="detail" class="detail"></p></section>
-<footer>No recording or AI analysis starts here. Choose a snapshot and Ask on the laptop when you want help. If focus is soft, move the phone back or add light. Locking the phone stops this camera session; return here and tap Start again after reconnecting on your laptop.</footer></main>
+<footer>No recording or AI analysis starts here. Choose a snapshot and Ask on the laptop when you want help. If focus is soft, move the phone back or add light. Keep this page open during a brief laptop refresh to reconnect automatically. Locking the phone stops capture; a full laptop app restart needs a new QR link.</footer></main>
 <script nonce="${nonce}">
 (() => {
   'use strict';
@@ -51,6 +51,7 @@ label{display:block;font-size:14px;font-weight:700;margin:15px 0 7px}select{widt
   let disconnectTimer = null;
   let connectTimer = null;
   let misses = 0;
+  let canResume = false;
   const requests = new Set();
   function message(value, error) { status.textContent = value; status.className = 'status' + (error ? ' error' : ''); }
   function current(id) { return id === generation && phase !== 'idle'; }
@@ -92,7 +93,7 @@ label{display:block;font-size:14px;font-weight:700;margin:15px 0 7px}select{widt
     stopButton.disabled = true;
     quality.disabled = false;
     detail.textContent = '';
-    message(reason || 'Camera stopped. Connect on your laptop, then tap Start here again.', error);
+    message(reason || 'Camera stopped. Tap Start again; this same pairing page will reconnect automatically.', error);
   }
   async function request(path, options = {}, timeout = 6000) {
     const controller = new AbortController();
@@ -127,23 +128,57 @@ label{display:block;font-size:14px;font-weight:700;margin:15px 0 7px}select{widt
       clearTimeout(connectTimer); connectTimer = null;
       clearTimeout(disconnectTimer); disconnectTimer = null;
       phase = 'streaming';
+      canResume = true;
       const settings = stream?.getVideoTracks()[0]?.getSettings?.() || {};
       detail.textContent = settings.width && settings.height ? settings.width + ' × ' + settings.height + ' · live preview' : 'Live preview';
       message('Live on your laptop. Keep this page open.');
     } else if (state === 'failed' || state === 'closed') {
-      stop('Camera connection ended. Connect on your laptop, then tap Start here again.', true);
+      phase = 'reconnecting';
+      message('Laptop video interrupted. Waiting briefly for it to reconnect…');
+      if (!disconnectTimer) disconnectTimer = setTimeout(() => stop('The laptop did not reconnect. Start again after pairing there.', true), 30000);
     } else if (state === 'disconnected' && !disconnectTimer) {
-      disconnectTimer = setTimeout(() => stop('The laptop connection was lost. Connect there, then tap Start here again.', true), 8000);
+      phase = 'reconnecting';
+      message('Laptop video interrupted. Waiting briefly for it to reconnect…');
+      disconnectTimer = setTimeout(() => stop('The laptop did not reconnect. Start again after pairing there.', true), 30000);
     } else if (state === 'connecting' && disconnectTimer) {
       clearTimeout(disconnectTimer); disconnectTimer = null;
     }
   }
   function schedulePoll(id) { if (current(id)) pollTimer = setTimeout(() => void poll(id), 2000); }
+  async function sessionForStart(id) {
+    let data = await request('/session');
+    if (!current(id) || !canResume || data?.active !== false || data.state !== 'idle') return data;
+    message('Waiting for your laptop to prepare the next connection…');
+    for (let attempt = 0; attempt < 20; attempt++) {
+      await new Promise(resolve => setTimeout(resolve, 250));
+      if (!current(id)) return null;
+      data = await request('/session');
+      if (data?.active !== false || data.state !== 'idle') return data;
+    }
+    return data;
+  }
+  function reconnect() {
+    if (!stream || stream.getVideoTracks().length !== 1 || stream.getVideoTracks()[0].readyState !== 'live') {
+      stop('The phone camera stopped. Tap Start again after pairing on the laptop.', true); return;
+    }
+    clearTimers();
+    const previous = peer;
+    peer = null;
+    previous?.close();
+    answerAttempted = false;
+    sessionId = null;
+    clientId = null;
+    phase = 'reconnecting';
+    message('Laptop reconnected. Restoring your live camera…');
+    void start(true);
+  }
   async function poll(id) {
     if (!current(id)) return;
     try {
-      const data = await request('/session');
+      const data = await sessionForStart(id);
       if (!current(id)) return;
+      if (data.active === true && data.session_id !== sessionId && data.state === 'waiting'
+          && data.offer?.type === 'offer') { reconnect(); return; }
       if (data.active !== true || data.session_id !== sessionId || data.state !== 'answered') {
         stop('The laptop ended this session. Connect there, then tap Start here again.'); return;
       }
@@ -170,8 +205,8 @@ label{display:block;font-size:14px;font-weight:700;margin:15px 0 7px}select{widt
       }
     }
   }
-  async function start() {
-    if (phase !== 'idle' || !/^[A-Za-z0-9_-]{43}$/.test(token)) return;
+  async function start(reuseCamera = false) {
+    if ((phase !== 'idle' && !(reuseCamera && phase === 'reconnecting')) || !/^[A-Za-z0-9_-]{43}$/.test(token)) return;
     phase = 'starting';
     const id = ++generation;
     clientId = crypto.randomUUID();
@@ -191,13 +226,15 @@ label{display:block;font-size:14px;font-weight:700;margin:15px 0 7px}select{widt
           || typeof data.offer.sdp !== 'string' || data.state !== 'waiting')
         throw new Error('This camera session is unavailable. Connect on your laptop, then tap Start here again.');
       sessionId = data.session_id;
-      message('Allow your rear camera when the browser asks.');
-      const acquired = await navigator.mediaDevices.getUserMedia(constraints());
-      if (!current(id)) { acquired.getTracks().forEach(track => track.stop()); return; }
-      stream = acquired;
+      if (!reuseCamera) {
+        message('Allow your rear camera when the browser asks.');
+        const acquired = await navigator.mediaDevices.getUserMedia(constraints());
+        if (!current(id)) { acquired.getTracks().forEach(track => track.stop()); return; }
+        stream = acquired;
+      }
       const tracks = stream.getVideoTracks();
       if (tracks.length !== 1 || stream.getAudioTracks().length) throw new Error('Could not start a video-only camera.');
-      tracks[0].addEventListener('ended', () => { if (current(id)) stop('The camera stopped. Connect on your laptop, then tap Start here again.', true); });
+      if (!reuseCamera) tracks[0].addEventListener('ended', () => { if (phase !== 'idle') stop('The camera stopped. Connect on your laptop, then tap Start here again.', true); });
       const capabilities = tracks[0].getCapabilities?.();
       if (capabilities?.focusMode?.includes('continuous')) {
         try { await tracks[0].applyConstraints({ advanced: [{ focusMode: 'continuous' }] }); }
@@ -208,7 +245,7 @@ label{display:block;font-size:14px;font-weight:700;margin:15px 0 7px}select{widt
       view.classList.add('live');
       void preview.play().catch(() => undefined);
       message('Connecting the video to your laptop…');
-      if (navigator.wakeLock?.request) {
+      if (!wakeLock && navigator.wakeLock?.request) {
         try { wakeLock = await navigator.wakeLock.request('screen'); }
         catch { /* Wake lock is best effort. */ }
         if (!current(id)) { if (wakeLock) void wakeLock.release().catch(() => undefined); wakeLock = null; return; }
@@ -249,7 +286,7 @@ label{display:block;font-size:14px;font-weight:700;margin:15px 0 7px}select{widt
     }
   }
   startButton.addEventListener('click', () => void start());
-  stopButton.addEventListener('click', () => stop('Camera stopped. Connect on your laptop, then tap Start here again.'));
+  stopButton.addEventListener('click', () => stop('Camera stopped. Tap Start again; this same pairing page will reconnect automatically.'));
   window.addEventListener('pagehide', () => stop('Camera stopped. Tap Start again after reconnecting on your laptop.'));
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'hidden' && phase !== 'idle') stop('Camera stopped when the page was hidden. Connect on your laptop, then tap Start here again.');

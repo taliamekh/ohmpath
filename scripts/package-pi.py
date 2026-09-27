@@ -20,6 +20,10 @@ FILES = (
     "models.py",
     "service.py",
     "video_server.py",
+    "pwm.py",
+    "motion_state.py",
+    "motion_worker.py",
+    "camera_worker.py",
 )
 PACKAGE_README = """# Ohm Path Pi service source bundle
 
@@ -65,7 +69,13 @@ python3.12 -m ohmpath_pi.video_server --enable-camera --port 8766
 
 The service binds only to `127.0.0.1`, serves authenticated MJPEG, and provides no control or laser-enable endpoint. It is not started by the mock control process and is not installed for boot startup. For a remote preview, prepare a separate SSH tunnel only after verifying the Pi host key/fingerprint through a trusted channel. Do not disable host-key checking or connect using an unverified host identity. The desktop client accepts a local tunnel port and token; it has no remote-host field.
 
-This archive provides software packaging only. No physical acceptance test, calibration, interlock validation, wiring verification, or hardware-control capability is included.
+## Explicit physical movement worker
+
+The separate `motion_worker` is a real Raspberry Pi 5 PWM driver for GPIO12 and GPIO13. It can only launch with `--enable-hardware` inside a systemd watchdog unit. It starts with both outputs disabled and requires fresh local-user arming, a current epoch/profile revision and continuing heartbeats. It has no laser output. The existing mock endpoint remains mock-only.
+
+The desktop's separate pinned SSH control and camera connections use this worker and `camera_worker`; neither opens a network listener or installs boot startup. A fixed independent systemd ExecStopPost command releases both outputs. Only an explicitly paired, private Pi is accepted. See the repository's docs/development/turret-control.md for operation and limits.
+
+Packaging and automated software tests do not establish physical acceptance, motor position feedback, calibrated laser accuracy, or an independent laser interlock.
 """
 
 

@@ -97,6 +97,12 @@ class FakeProtocol:
             assert "Write only the user-facing explanation field" in prompt
             assert "exact numbers and units" in prompt
             assert "Do not roleplay" in prompt
+            if len(params["input"]) == 2:
+                assert params["input"][1]["type"] == "localImage"
+                assert "ON, L, TX, and RX labels" in prompt
+                assert "A single photo cannot establish blinking or sustained absence" in prompt
+            else:
+                assert "ON, L, TX, and RX labels" not in prompt
             return {"turn": {"id": "turn-1"}}
         raise AssertionError(method)
 
@@ -133,6 +139,14 @@ def test_restricted_runtime_dispatches_only_reviewed_tools_and_validates_answer(
     assert result["simulation_evidence_ids"] == ["sim-e"]
     assert result["answer"]["proposed_test_id"] == "prop-e"
     assert FakeProtocol.last.closed
+
+
+def test_reviewed_image_adds_uno_r3_indicator_guidance(replay, tmp_path):
+    image = tmp_path / "board.png"
+    image.write_bytes(b"\x89PNG\r\n\x1a\n" + b"x" * 24)
+    result = runtime.run_investigation("http://127.0.0.1:8765", "x" * 32, "session-1",
+                                       "revision-1", "What do the Uno R3 lights mean?", image_path=image)
+    assert result["answer"]["proposed_test_id"] == "prop-e"
 
 
 def test_restricted_runtime_rejects_malformed_evidence_and_closes(replay):
