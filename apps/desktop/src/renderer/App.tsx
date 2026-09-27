@@ -764,13 +764,14 @@ function App() {
 
   async function useCameraSnapshot(capture: CameraCapture) {
     const generation = ++snapshotGenerationRef.current;
-    const result = await request<{ image: PhotoHelpImage }>("photoImportCapture", capture);
+    const { focus_region, ...originalCapture } = capture;
+    const result = await request<{ image: PhotoHelpImage }>("photoImportCapture", originalCapture);
     if (!snapshotMountedRef.current || generation !== snapshotGenerationRef.current
         || snapshotContextRef.current.tab !== "bench" || snapshotContextRef.current.paused) {
       await request("photoReleaseImage", { image_id: result.image.image_id }).catch(() => undefined);
       return;
     }
-    setPhotoCapture(result.image);
+    setPhotoCapture({ ...result.image, ...(focus_region ? { focus_region } : {}) });
     setVisualCaption("Your snapshot is ready. Tell me what you would like to check.");
     setCameraReview(true);
     setCameraReviewVisible(true);

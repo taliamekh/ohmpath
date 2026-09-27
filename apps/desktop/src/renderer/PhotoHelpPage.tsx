@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import "./photo-help.css";
 import PhonePhotoLink from "./PhonePhotoLink";
 import SpokenQuestion from "./SpokenQuestion";
+import type { FrameRegion } from "./circuit-framing";
 
 export type PhotoHelpImage = {
   image_id: string;
@@ -12,6 +13,8 @@ export type PhotoHelpImage = {
   original_width?: number;
   original_height?: number;
   resized?: boolean;
+  // Display-only framing. The stored original image is still sent by explicit Ask.
+  focus_region?: FrameRegion;
 };
 
 type Annotation = { image_id: string; x: number; y: number; label: string };
@@ -107,6 +110,7 @@ export default function PhotoHelpPage({ active = true, initialCapture, onCapture
   const [error, setError] = useState("");
   const [zoom, setZoom] = useState(1);
   const [activeNote, setActiveNote] = useState<number | null>(null);
+  const [wholeImage, setWholeImage] = useState(false);
   const imagesRef = useRef<PhotoHelpImage[]>([]);
   const selectedIdRef = useRef("");
   const jobRef = useRef<ActiveJob | null>(null);
@@ -158,6 +162,7 @@ export default function PhotoHelpPage({ active = true, initialCapture, onCapture
     selectedIdRef.current = selected;
     setSelectedId(selected);
     setZoom(1);
+    setWholeImage(false);
     setActiveNote(null);
     setTurns([]);
     setError("");
@@ -206,8 +211,19 @@ export default function PhotoHelpPage({ active = true, initialCapture, onCapture
     }
     if (!imagesRef.current.some((image) => image.image_id === initialCapture.image_id)) {
       if (imagesRef.current.length < 3) changeImages([...imagesRef.current, initialCapture]);
-      else release(initialCapture.image_id);
+      else {
+        release(initialCapture.image_id);
+        setError("Three images are already open. Remove one, then capture the new view again.");
+        activity("error", "Remove one of the three open images before adding a new camera view.");
+        onCaptureConsumed?.();
+        return;
+      }
     }
+    selectedIdRef.current = initialCapture.image_id;
+    setSelectedId(initialCapture.image_id);
+    setWholeImage(false);
+    setZoom(1);
+    setActiveNote(null);
     onCaptureConsumed?.();
   }, [active, initialCapture, onCaptureConsumed]);
 
@@ -352,6 +368,7 @@ export default function PhotoHelpPage({ active = true, initialCapture, onCapture
   const selected = images.find((image) => image.image_id === selectedId) ?? images[0];
   const latest = turns[turns.length - 1];
   const notes = latest?.answer.annotations.filter((item) => item.image_id === selected?.image_id) ?? [];
+  const crop = wholeImage ? undefined : selected?.focus_region;
 
   return <main className="photo-help-page">
     <header className="photo-help-heading">
@@ -371,10 +388,13 @@ export default function PhotoHelpPage({ active = true, initialCapture, onCapture
     <div className="photo-help-layout">
       <section className="photo-help-visual panel" aria-label="Selected image">
         <div className="photo-help-visual-head"><span><i /> {selected ? selected.name : "Your image goes here"}</span><div className="photo-help-zoom" aria-label="Image zoom"><button type="button" onClick={() => setZoom((value) => Math.max(1, value - .5))} disabled={!selected || zoom <= 1} aria-label="Zoom out">−</button><small>{Math.round(zoom * 100)}%</small><button type="button" onClick={() => setZoom((value) => Math.min(3, value + .5))} disabled={!selected || zoom >= 3} aria-label="Zoom in">+</button></div></div>
+        {selected?.focus_region && <div className="photo-help-framing"><button type="button" className="button secondary small" onClick={() => { setWholeImage(value => !value); setZoom(1); }}>{wholeImage ? "Circuit close-up" : "Whole image"}</button><small>{wholeImage ? "Complete snapshot" : "Suggested close-up"} · the complete image is included when you ask.</small></div>}
         {selected ? <div className="photo-help-scroll" key={selected.image_id}>
-          <div className="photo-help-image-wrap" style={{ width: `${zoom * 100}%`, aspectRatio: `${selected.width} / ${selected.height}` }}>
+          <div className="photo-help-image-wrap" data-closeup={Boolean(crop)} style={{ width: `${zoom * 100}%`, aspectRatio: `${selected.width * (crop?.width ?? 1)} / ${selected.height * (crop?.height ?? 1)}` }}>
+            <div className="photo-help-image-coordinates" style={crop ? { width: `${100 / crop.width}%`, height: `${100 / crop.height}%`, left: `${-100 * crop.x / crop.width}%`, top: `${-100 * crop.y / crop.height}%` } : undefined}>
             <img src={selected.data_url} alt={selected.name || "Selected circuit image"} draggable={false} />
-            {notes.map((note, index) => <button type="button" key={`${selected.image_id}-${index}`} className={`photo-help-marker ${activeNote === index ? "active" : ""}`} style={{ left: `${note.x * 100}%`, top: `${note.y * 100}%` }} title={note.label} aria-label={`Annotation ${index + 1}: ${note.label}`} onClick={() => setActiveNote(activeNote === index ? null : index)}><span>{index + 1}</span><b className={note.x > .64 ? "left" : ""}>{note.label}</b></button>)}
+            {notes.map((note, index) => <button type="button" key={`${selected.image_id}-${index}`} className={`photo-help-marker ${activeNote === index ? "active" : ""}`} style={{ left: `${note.x * 100}%`, top: `${note.y * 100}%` }} hidden={Boolean(crop && (note.x < crop.x || note.x > crop.x + crop.width || note.y < crop.y || note.y > crop.y + crop.height))} title={note.label} aria-label={`Annotation ${index + 1}: ${note.label}`} onClick={() => setActiveNote(activeNote === index ? null : index)}><span>{index + 1}</span><b className={note.x > .64 ? "left" : ""}>{note.label}</b></button>)}
+            </div>
           </div>
         </div> : <div className="photo-help-empty"><span className="photo-help-empty-icon" aria-hidden="true">▧</span><strong>Start with an image</strong><p>Add a photo of your circuit or a diagram you want to understand.</p><div style={{ display: "flex", flexWrap: "wrap", justifyContent: "center", gap: 8 }}><button type="button" className="button primary" onClick={() => void chooseOrPaste("photoChooseImage")} disabled={choosing}>{choosing ? "Adding…" : "Add a photo or diagram"}<span>＋</span></button><button type="button" className="button secondary" onClick={() => void chooseOrPaste("photoPasteImage")} disabled={choosing}>Paste image</button></div><small>PNG or JPEG · up to 3 images</small></div>}
         <div className="photo-help-visual-foot"><span>{selected ? `${selected.width} × ${selected.height}${selected.resized ? " · Resized locally" : ""} · ${notes.length ? `${notes.length} marked ${notes.length === 1 ? "detail" : "details"}` : "No marked details yet"}` : "No camera needed"}</span><span>Visual guidance is not a confirmed measurement.</span></div>

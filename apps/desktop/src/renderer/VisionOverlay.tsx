@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import "./vision-overlay.css";
+import type { FrameRegion } from "./circuit-framing";
+import { framedImageBox, pointInFrame, WHOLE_FRAME } from "./camera-framing-geometry";
 
 type Frame = { media: HTMLVideoElement | HTMLImageElement; stamp: number };
 type Point = { x: number; y: number };
@@ -15,12 +17,6 @@ function dimensions(media: Frame["media"]) {
     ? [media.videoWidth, media.videoHeight] : [media.naturalWidth, media.naturalHeight];
 }
 
-function imageBox(width: number, height: number, sourceWidth: number, sourceHeight: number) {
-  const scale = Math.min(width / sourceWidth, height / sourceHeight);
-  const w = sourceWidth * scale, h = sourceHeight * scale;
-  return { left: (width - w) / 2, top: (height - h) / 2, width: w, height: h };
-}
-
 async function request(action: string, payload: Record<string, unknown>) {
   if (!window.ohmpath) throw new Error("Local vision is unavailable.");
   return await window.ohmpath.request(action, payload);
@@ -34,8 +30,8 @@ async function clearContext(contextId: string) {
   }
 }
 
-export default function VisionOverlay({ enabled, source, getFrame }: {
-  enabled: boolean; source: "overview" | "pi"; getFrame: () => Frame | null;
+export default function VisionOverlay({ enabled, source, getFrame, region = WHOLE_FRAME }: {
+  enabled: boolean; source: "overview" | "pi"; getFrame: () => Frame | null; region?: FrameRegion;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const latest = useRef(getFrame);
@@ -124,7 +120,8 @@ export default function VisionOverlay({ enabled, source, getFrame }: {
       const target = observation?.status === "tracking" ? observation.target : null;
       if (!frame || !target) return;
       const [width, height] = dimensions(frame.media);
-      const fitted = imageBox(box.width, box.height, width, height);
+      if (target.x < region.x || target.x > region.x + region.width || target.y < region.y || target.y > region.y + region.height) return;
+      const fitted = framedImageBox(box.width, box.height, width, height, region);
       painter.scale(ratio, ratio);
       const x = fitted.left + target.x * fitted.width, y = fitted.top + target.y * fitted.height;
       painter.lineWidth = 3; painter.strokeStyle = "#f5d982";
@@ -138,7 +135,7 @@ export default function VisionOverlay({ enabled, source, getFrame }: {
     paint();
     const resize = new ResizeObserver(paint); resize.observe(canvas);
     return () => resize.disconnect();
-  }, [enabled, observation]);
+  }, [enabled, observation, region]);
 
   function select(point: Point) {
     selected.current = point;
@@ -146,22 +143,23 @@ export default function VisionOverlay({ enabled, source, getFrame }: {
   }
 
   if (!enabled) return null;
+  const target = observation?.status === "tracking" ? observation.target : null;
+  const outside = target && (target.x < region.x || target.x > region.x + region.width || target.y < region.y || target.y > region.y + region.height);
   return <>
     <canvas ref={canvasRef} className="vision-overlay-target" role="button" tabIndex={0}
       aria-label="Select a visual tracking point; press Enter to select the image center"
-      onKeyDown={event => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); select({ x: .5, y: .5 }); } }}
+      onKeyDown={event => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); select({ x: region.x + region.width / 2, y: region.y + region.height / 2 }); } }}
       onClick={event => {
         const frame = latest.current();
         if (!frame) return;
         const [width, height] = dimensions(frame.media), box = event.currentTarget.getBoundingClientRect();
-        const fitted = imageBox(box.width, box.height, width, height);
-        const x = (event.clientX - box.left - fitted.left) / fitted.width;
-        const y = (event.clientY - box.top - fitted.top) / fitted.height;
-        if (x >= 0 && x <= 1 && y >= 0 && y <= 1) select({ x, y });
+        const fitted = framedImageBox(box.width, box.height, width, height, region);
+        const point = pointInFrame(event.clientX - box.left, event.clientY - box.top, fitted, region);
+        if (point) select(point);
       }} />
     <div className="vision-overlay-status" aria-live="polite">
-      <strong>{observation?.status === "tracking" ? "Following selected point" : "Local visual tracking"}</strong>
-      <span>{message}</span><small>Image position only · no electrical or aiming verification</small>
+      <strong>{outside ? "Tracked point outside close-up" : observation?.status === "tracking" ? "Following selected point" : "Local visual tracking"}</strong>
+      <span>{outside ? "Show the whole camera view or select a point in this close-up." : message}</span><small>Image position only · no electrical or aiming verification</small>
     </div>
   </>;
 }
