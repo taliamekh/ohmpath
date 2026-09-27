@@ -1,0 +1,8 @@
+.phone-live-camera { display: flex; align-items: flex-start; gap: 1.5rem; padding: 1.3rem; border: 1px solid #a0ab80; border-radius: 12px; background: #f8f5e5; margin: 1rem 0; color: #29452e; }
+.phone-live-camera h3 { margin-top: 0; color: #203c28; }
+.phone-live-camera p { max-width: 62ch; }
+.phone-live-camera small { display: block; line-height: 1.55; color: #536348; }
+.phone-live-pairing { flex: 0 0 228px; max-width: 100%; text-align: center; }
+.phone-live-pairing img { width: 228px; max-width: 100%; height: auto; border-radius: 8px; }
+.camera-workspace.is-focused .phone-live-camera { display: none; }
+@media(max-width: 680px) { .phone-live-camera { flex-direction: column; } }

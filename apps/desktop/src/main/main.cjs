@@ -10,6 +10,10 @@ const { createElevenLabsConnection } = require('./elevenlabs.cjs');
 const { createPhotoImages, UUID } = require('./photo-images.cjs');
 const { createTurretPreference } = require('./turret-preference.cjs');
 const { createPhonePhotoBridge } = require('./phone-photos.cjs');
+const { createPhoneLiveBridge } = require('./phone-live.cjs');
+const { createPhoneLiveTunnel } = require('./phone-live-tunnel.cjs');
+const { phoneLivePage } = require('./phone-live-page.cjs');
+const { waitForPhoneLivePage } = require('./phone-live-ready.cjs');
 const QRCode = require('qrcode');
 const piVideo = new PiVideoClient();
 const photoImages = createPhotoImages(nativeImage);
@@ -32,6 +36,9 @@ let cameraAllowed = false;
 let elevenLabs;
 let turretPreference;
 let phonePhotos;
+let phoneLive;
+let phoneLiveStarting = null;
+let phoneLiveQr = { url: '', data: '' };
 let phonePhotoAccepting = false;
 let pendingPhonePhoto = null;
 let phoneQr = { url: '', data: '' };
@@ -53,6 +60,20 @@ async function phonePhotoStatus() {
   }
   if (!status.active) phoneQr = { url: '', data: '' };
   return { ...status, qr_data_url: phoneQr.data, pending: Boolean(pendingPhonePhoto), interfaces: phonePhotos.interfaces() };
+}
+
+async function phoneLiveStatus(sessionId) {
+  const status = phoneLive.status(sessionId);
+  if (!status.active) { phoneLiveQr = { url: '', data: '' }; return status; }
+  if (status.url && phoneLiveQr.url !== status.url) {
+    const data = await QRCode.toDataURL(status.url, {
+      errorCorrectionLevel: 'M', width: 240, margin: 3,
+      color: { dark: '#263c2eff', light: '#fffdf4ff' },
+    });
+    if (phoneLive.status(sessionId).session_id !== status.session_id) return phoneLiveStatus(sessionId);
+    phoneLiveQr = { url: status.url, data };
+  }
+  return { ...status, qr_data_url: phoneLiveQr.data };
 }
 app.on('second-instance', () => {
   if (mainWindow && !mainWindow.isDestroyed() && process.env.OHMPATH_HEADLESS !== '1') {
@@ -154,7 +175,45 @@ ipcMain.handle('ohmpath:companion-hide', event => {
 
 ipcMain.handle('ohmpath:request', async (event, action, payload) => {
   if (!trustedSender(event) || typeof action !== 'string' || payload === null || typeof payload !== 'object'
-      || JSON.stringify(payload).length > (['transcribe', 'photoTranscribe'].includes(action) ? 2100000 : action === 'photoImportCapture' ? 2701000 : action === 'visionFrame' ? 701000 : 60000)) throw new Error('Invalid application message.');
+      || JSON.stringify(payload).length > (['transcribe', 'photoTranscribe'].includes(action) ? 2100000 : action === 'photoImportCapture' ? 2701000 : action === 'visionFrame' ? 701000 : action === 'phoneLiveStart' ? 80000 : 60000)) throw new Error('Invalid application message.');
+  if (action === 'phoneLiveStart') {
+    if (!UUID.test(payload.request_id || '')) throw new Error('A phone connection request is required.');
+    phoneLiveStarting?.controller.abort();
+    const pending = { id: payload.request_id, controller: new AbortController() };
+    phoneLiveStarting = pending;
+    let started;
+    let heartbeat;
+    try {
+      started = await phoneLive.start({ offer: payload.offer });
+      if (pending.controller.signal.aborted) throw new Error('Phone camera connection was cancelled.');
+      heartbeat = setInterval(() => {
+        if (!phoneLive.status(started.session_id).active) pending.controller.abort();
+      }, 2000);
+      await waitForPhoneLivePage(started.url, { signal: pending.controller.signal });
+      if (pending.controller.signal.aborted) throw new Error('Phone camera connection was cancelled.');
+      return phoneLiveStatus(started.session_id);
+    } catch (error) {
+      if (started) await phoneLive.stop({ session_id: started.session_id });
+      throw error;
+    } finally {
+      clearInterval(heartbeat);
+      if (phoneLiveStarting === pending) phoneLiveStarting = null;
+    }
+  }
+  if (action === 'phoneLiveCancelStart') {
+    if (phoneLiveStarting?.id === payload.request_id) {
+      phoneLiveStarting.controller.abort();
+      phoneLiveStarting = null;
+      await phoneLive.shutdown();
+    }
+    return { cancelled: true };
+  }
+  if (action === 'phoneLiveStatus') return phoneLiveStatus(payload.session_id);
+  if (action === 'phoneLiveStop') {
+    if (typeof payload.session_id !== 'string') throw new Error('A phone session is required.');
+    await phoneLive.stop({ session_id: payload.session_id });
+    return phoneLiveStatus(payload.session_id);
+  }
   if (action === 'visionFrame') return callBench('/v1/vision/track', 'POST', payload);
   if (action === 'visionReset') return callBench('/v1/vision/reset', 'POST', { context_id: payload.context_id });
   if (action === 'turretStatus') return turretPreference.status();
@@ -347,6 +406,10 @@ app.whenReady().then(async () => {
     mainWindow.webContents.send('ohmpath:phone-photo');
     return image.image_id;
   } });
+  phoneLive = createPhoneLiveBridge({
+    pageFactory: phoneLivePage,
+    tunnelFactory: createPhoneLiveTunnel({ binaryPath: process.env.OHMPATH_CLOUDFLARED || join(root, 'runtime', 'tools', process.platform === 'win32' ? 'cloudflared.exe' : 'cloudflared') }),
+  });
   session.defaultSession.setPermissionCheckHandler((contents, permission, _origin, details) => {
     const expected = require('node:url').pathToFileURL(join(root, 'dist/desktop/index.html')).href;
     const url = contents?.getURL() || '';
@@ -376,6 +439,8 @@ app.whenReady().then(async () => {
     microphoneAllowed = false; cameraAllowed = false;
     phonePhotoAccepting = false;
     void phonePhotos?.stop();
+    void phoneLive?.shutdown();
+    phoneLiveStarting?.controller.abort();
     piVideo.disconnect();
     console.error('Ohm Path interface stopped. Restart to recover saved evidence; fresh setup checks are required.');
     app.quit();
@@ -396,6 +461,8 @@ app.on('before-quit', event => {
   void elevenLabs?.handle('cancelSpeech', {});
   phonePhotoAccepting = false;
   void phonePhotos?.stop();
+  void phoneLive?.shutdown();
+  phoneLiveStarting?.controller.abort();
   pendingPhonePhoto = null;
   photoImages.clear();
   piVideo.disconnect();
