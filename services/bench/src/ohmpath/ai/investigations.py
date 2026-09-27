@@ -26,6 +26,7 @@ SAFE_FAILURE_MESSAGES = {
     "ordinary_subscription_usage_unavailable": "Subscription use is currently unavailable. No paid fallback was started.",
     "codex_allowance_unavailable": "The subscription allowance could not be verified. Retry after checking the signed-in account.",
     "codex_version_mismatch": "This Codex CLI version has not been verified by this build. Review the adapter version before retrying.",
+    "codex_executable_unavailable": "Ohm Path could not find or start the installed Codex program. Check the local Codex installation, then reopen Ohm Path.",
     "codex_config_unavailable": "The local signed-in Codex configuration is unavailable.",
     "turn_timeout": "The investigation reached its time limit without a validated answer. You can narrow the question and try again.",
     "stale_or_unlinked_model_output": "The answer did not cite valid current evidence and was discarded. Review the circuit and retry.",

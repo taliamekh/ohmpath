@@ -28,6 +28,9 @@ import uvicorn
 
 from ohmpath.ai.bridge import LocalBenchAuthority, NarrowToolBridge, TOOLS, ToolDenied
 from ohmpath.ai.codex import EFFORT, MODEL, PINNED_CLI_VERSION
+from ohmpath.ai.executable import (
+    ExecutableUnavailable, ExecutableVersionMismatch, resolve_codex_executable,
+)
 
 
 class ProofFailure(RuntimeError):
@@ -107,9 +110,12 @@ def restricted_command(*, bridge_mcp: bool = True) -> list[str]:
     dispatches the same four operations through dynamic callbacks and must not
     advertise a duplicate MCP catalog.
     """
-    cli = subprocess.run(["codex", "--version"], capture_output=True, text=True, timeout=5, check=True)
-    if cli.stdout.strip() != PINNED_CLI_VERSION:
-        raise ProofFailure("codex_version_mismatch")
+    try:
+        executable = resolve_codex_executable(PINNED_CLI_VERSION)
+    except ExecutableUnavailable as error:
+        raise ProofFailure("codex_executable_unavailable") from error
+    except ExecutableVersionMismatch as error:
+        raise ProofFailure("codex_version_mismatch") from error
     codex_home = Path(os.environ.get("CODEX_HOME", Path.home() / ".codex"))
     config_file = codex_home / "config.toml"
     if not config_file.is_file():
@@ -144,7 +150,7 @@ def restricted_command(*, bridge_mcp: bool = True) -> list[str]:
         if name == "ohmpath_bench" and bridge_mcp:
             raise ProofFailure("conflicting_inherited_mcp")
         settings[f"mcp_servers.{name}.enabled"] = "false"
-    command = ["codex", "app-server", "--strict-config"]
+    command = [executable, "app-server", "--strict-config"]
     for key, value in settings.items():
         command.extend(["-c", f"{key}={value}"])
     return command
