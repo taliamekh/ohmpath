@@ -3,13 +3,11 @@
 import json
 import threading
 import time
-from types import SimpleNamespace
 
 import pytest
 
 from ohmpath.ai import live_proof, runtime
 from ohmpath.ai.bridge import TOOLS
-from ohmpath.ai.codex import PINNED_CLI_VERSION
 from ohmpath.ai.live_proof import ProofFailure
 
 
@@ -398,13 +396,13 @@ def test_runtime_rejects_api_key_auth_and_model_reroute(replay, monkeypatch):
 def test_restricted_config_builds_dynamic_only_and_standalone_mcp_modes(tmp_path, monkeypatch):
     (tmp_path / "config.toml").write_text("[mcp_servers.inherited]\nenabled = true\n", encoding="utf-8")
     monkeypatch.setenv("CODEX_HOME", str(tmp_path))
-    monkeypatch.setattr(live_proof.subprocess, "run", lambda *args, **kwargs: SimpleNamespace(
-        stdout=PINNED_CLI_VERSION + "\n"))
+    executable = str(tmp_path / "codex.exe")
+    monkeypatch.setattr(live_proof, "resolve_codex_executable", lambda version: executable)
 
     dynamic = live_proof.restricted_command(bridge_mcp=False)
     settings = {dynamic[index + 1].split("=", 1)[0]: dynamic[index + 1].split("=", 1)[1]
                 for index in range(3, len(dynamic), 2)}
-    assert dynamic[:3] == ["codex", "app-server", "--strict-config"]
+    assert dynamic[:3] == [executable, "app-server", "--strict-config"]
     assert settings["mcp_servers.inherited.enabled"] == "false"
     assert not any(key.startswith("mcp_servers.ohmpath_bench.") for key in settings)
     assert settings["features.shell_tool"] == "false"

@@ -297,6 +297,7 @@ def test_shutdown_drops_completed_answers_and_followup_history():
     (ProofFailure("not_chatgpt_subscription"), "not_chatgpt_subscription", "Sign in to Codex"),
     (ProofFailure("allowance_margin_reached"), "allowance_margin_reached", "Wait for it to reset"),
     (ProofFailure("astra_capability_unavailable"), "astra_capability_unavailable", "Check model access"),
+    (ProofFailure("codex_executable_unavailable"), "codex_executable_unavailable", "installed Codex program"),
     (ProofFailure("effective_config_not_restricted"), "effective_config_not_restricted", "Check the configuration"),
     (ProofFailure("cannot_disable_inherited_mcp"), "cannot_disable_inherited_mcp", "Check the configuration"),
     (ProofFailure("turn_timeout"), "turn_timeout", "timed out"),
