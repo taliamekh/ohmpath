@@ -6,6 +6,8 @@ Ohm Path is a runnable Windows desktop development build. The complete product m
 
 On a prepared checkout, open `scripts/start.cmd`. A fresh checkout needs Python 3.12+, Node.js 22+, and pnpm 11.25.0, then `python scripts/setup.py`. Install KiCad 10 and ngspice for their respective circuit tools. Local speech also requires the separately installed whisper.cpp worker and model described in the README. Setup does not change PowerShell policy or enable hardware.
 
+After changing desktop source, fully close the app, run `pnpm build`, and reopen `scripts/start.cmd`. The launcher uses the existing production bundle; an already open window does not reload source or native title-bar settings automatically.
+
 The desktop starts its own private local service and shuts it down when closed. Live help offers explicit camera selection and snapshot questions. Photo help accepts selected images and optional phone photo transfer. Spoken questions fill an editable draft; only Ask submits it. Voice playback starts disabled each launch and Listen is explicit. Turret preference records setup intent; physical actuation remains disabled.
 
 ## Implemented and verified software
@@ -19,7 +21,7 @@ The desktop starts its own private local service and shuts it down when closed. 
 | Phone photos | Eight local bridge tests plus the production phone page in Chromium passed: bounded resize, explicit Send, preview, expiry and cancellation. | Actual iPhone Safari, Wi-Fi/firewall and USB live-camera behavior await device checks. The local trusted-network HTTP link is unencrypted. |
 | Spoken input | Mocked draft-only capture/cancellation checks passed. Installed Whisper recognized one synthetic local question correctly on CPU. | Real microphone, room noise, speaker echo and simultaneous dual-camera behavior remain unverified. |
 | Voice output | Bounded streaming, cancellation and budget checks pass offline; provider PCM transport has been verified separately. | No actor/character voice match or audible physical-speaker quality is claimed. The saved stock voice is not an exact anime performance. |
-| Theme and fullscreen | Solid dark green title bar, countryside continuation, caption-control spacing and readable signpost navigation are implemented; synthetic layout checks passed. | Native Windows caption-control overlap still needs a direct window check. |
+| Theme and fullscreen | One shared countryside panorama spans navigation and workspace. Fullscreen Exit sits at the upper left below the caption area. Build and two desktop regressions passed, including 980×700, 1280×800 and 1440×900 layout checks. A direct Windows check of the rebuilt app verified the solid green native title bar, clear Exit control and return to Live help. | Layout tests use synthetic or inactive video; they do not verify a physical camera. Other operating-system caption layouts remain unverified. |
 
 ## Integrated checks
 

@@ -488,12 +488,15 @@ export default function CameraWorkspace({ paused, onSnapshot, onActivity, guide,
 
   return <section ref={workspaceRef} className={`camera-workspace${focused ? " is-focused" : ""}${fallbackFocusRef.current ? " is-fallback-focus" : ""}`} aria-label="Camera workspace">
     <header className="camera-workspace-head">
-      <div><h1>Live help</h1><p>Choose a camera to preview. Send one frame only when you ask about this view.</p></div>
+      <div className="camera-workspace-title">
+        {focused && <button ref={focusButtonRef} type="button" className="camera-workspace-focus-button camera-workspace-exit" onClick={() => void exitFocus()}><span aria-hidden="true">← </span>Exit full screen</button>}
+        <div><h1>Live help</h1><p>Choose a camera to preview. Send one frame only when you ask about this view.</p></div>
+      </div>
       <div className="camera-workspace-head-actions"><div className="camera-workspace-layout" role="group" aria-label="Camera layout">
         <button type="button" className={layout === "overview" ? "selected" : ""} onClick={() => { setLayout("overview"); setSnapshotSource("overview"); }} aria-pressed={layout === "overview"}>Overview</button>
         <button type="button" className={layout === "both" ? "selected" : ""} onClick={() => setLayout("both")} aria-pressed={layout === "both"}>Both</button>
         <button type="button" className={layout === "pi" ? "selected" : ""} onClick={() => { setLayout("pi"); setSnapshotSource("pi"); }} aria-pressed={layout === "pi"}>Pi close-up</button>
-      </div><button type="button" className="camera-workspace-subtitles-button" onClick={toggleSubtitles} aria-pressed={subtitlesEnabled ?? localSubtitlesEnabled}>{(subtitlesEnabled ?? localSubtitlesEnabled) ? "Subtitles on" : "Subtitles off"}</button><button ref={focusButtonRef} type="button" className="camera-workspace-focus-button" onClick={() => void (focused ? exitFocus() : enterFocus())}>{focused ? "Exit full screen" : "Full screen"}</button></div>
+      </div><button type="button" className="camera-workspace-subtitles-button" onClick={toggleSubtitles} aria-pressed={subtitlesEnabled ?? localSubtitlesEnabled}>{(subtitlesEnabled ?? localSubtitlesEnabled) ? "Subtitles on" : "Subtitles off"}</button>{!focused && <button ref={focusButtonRef} type="button" className="camera-workspace-focus-button" onClick={() => void enterFocus()}>Full screen</button>}</div>
     </header>
 
     <div className={`camera-workspace-stage camera-workspace-stage-${layout}`}>
