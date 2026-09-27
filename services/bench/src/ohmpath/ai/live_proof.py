@@ -38,7 +38,7 @@ class Protocol:
     def __init__(self, command: list[str], env: dict[str, str]):
         self.process = subprocess.Popen(
             command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-            text=True, bufsize=1, env=env,
+            text=True, encoding="utf-8", errors="strict", bufsize=1, env=env,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
         self.queue: queue.Queue[dict[str, Any]] = queue.Queue(maxsize=512)
