@@ -26,14 +26,21 @@
 .camera-workspace-focus-button:hover, .camera-workspace-subtitles-button:hover, .camera-workspace-focus-bar button:hover:not(:disabled) { background: #28534d; }
 .camera-workspace-focus-button:focus-visible, .camera-workspace-subtitles-button:focus-visible, .camera-workspace-focus-bar button:focus-visible { outline: 2px solid #9de5bc; outline-offset: 2px; }
 .camera-workspace-subtitles-button[aria-pressed="true"] { border-color: #75c5a5; }
-.camera-workspace-stage { position: relative; display: grid; min-height: clamp(320px, 48vh, 480px); gap: 10px; overflow: hidden; }
+.camera-workspace-stage { position: relative; display: grid; height: clamp(320px, 48vh, 480px); grid-template-rows: minmax(0, 1fr); gap: 10px; overflow: hidden; }
 .camera-workspace-stage-overview, .camera-workspace-stage-pi { grid-template-columns: minmax(0, 1fr); }
 .camera-workspace-stage-both { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .camera-workspace-stage-overview .camera-workspace-pi, .camera-workspace-stage-pi .camera-workspace-overview { display: none; }
-.camera-workspace-feed { position: relative; overflow: hidden; min-width: 0; min-height: 280px; border: 1px solid #365257; border-radius: 9px; background: radial-gradient(circle at 50% 45%, #193237, #0a151c 73%); }
-.camera-workspace-feed video, .camera-workspace-feed img { display: block; width: 100%; height: 100%; object-fit: contain; background: #071116; }
+.camera-workspace-feed { position: relative; overflow: hidden; min-width: 0; min-height: 0; border: 1px solid #365257; border-radius: 9px; background: radial-gradient(circle at 50% 45%, #193237, #0a151c 73%); }
+.camera-workspace-feed video, .camera-workspace-feed img { position: absolute; inset: 0; display: block; width: 100%; height: 100%; object-fit: contain; background: #071116; }
 .camera-workspace-feed video { visibility: hidden; }
 .camera-workspace-feed video.is-visible { visibility: visible; }
+.camera-framing { position: absolute; inset: 0; overflow: hidden; }
+.camera-framing-media { position: absolute; inset: 0; }
+.camera-closeup-controls { display: flex; gap: 9px; align-items: center; flex-wrap: wrap; }
+.camera-closeup-controls small { color: #56705a; }
+.camera-workspace.is-focused .camera-closeup-controls small { color: #adc9bd; }
+.camera-closeup-picker { position: absolute; inset: 0; z-index: 4; width: 100%; height: 100%; border: 2px dashed #e3cc89; background: transparent; cursor: crosshair; }
+.camera-closeup-picker span { position: absolute; top: 15px; left: 50%; transform: translateX(-50%); border-radius: 6px; padding: 8px 12px; background: #162e23e8; color: #fff8dc; white-space: nowrap; }
 .camera-workspace-empty { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 9px; padding: 24px; text-align: center; }
 .camera-workspace-empty-icon { display: grid; place-items: center; width: 56px; height: 56px; border: 1px solid #35545a; border-radius: 17px; background: #142b32; color: #76adab; font-size: 31px; line-height: 1; }
 .camera-workspace-empty strong { color: #d0e5de; font-size: 14px; font-weight: 600; }
@@ -85,7 +92,7 @@
 .camera-workspace.is-focused .camera-workspace-head h2 { margin-bottom: 0; font-size: clamp(17px, 1.5vw, 24px); }
 .camera-workspace.is-focused .camera-workspace-head p { display: none; }
 .camera-workspace.is-focused .camera-workspace-subtitles-button { display: none; }
-.camera-workspace.is-focused .camera-workspace-stage { position: relative; flex: 1 1 auto; min-height: 0; overflow: hidden; }
+.camera-workspace.is-focused .camera-workspace-stage { position: relative; flex: 1 1 0; height: 0; min-height: 0; overflow: hidden; }
 .camera-workspace.is-focused .camera-workspace-feed { min-height: 0; }
 .camera-workspace.is-focused .camera-workspace-feed video, .camera-workspace.is-focused .camera-workspace-feed img { position: absolute; inset: 0; }
 .camera-workspace.is-focused .camera-workspace-focus-guide { position: absolute; right: 16px; bottom: 8px; display: block; pointer-events: none; filter: drop-shadow(0 8px 18px #000b); }
@@ -104,8 +111,8 @@
   .camera-workspace-head, .camera-workspace-bottom { align-items: start; flex-direction: column; }
   .camera-workspace.is-focused .camera-workspace-head { align-items: start; }
   .camera-workspace-bottom p { max-width: none; text-align: left; }
-  .camera-workspace-stage-both { grid-template-columns: 1fr; }
-  .camera-workspace-stage-both .camera-workspace-feed { min-height: 260px; }
+  .camera-workspace-stage-both { height: clamp(520px, 70vh, 720px); grid-template-columns: minmax(0, 1fr); grid-template-rows: repeat(2, minmax(0, 1fr)); }
+  .camera-workspace-stage-both .camera-workspace-feed { min-height: 0; }
   .camera-workspace.is-focused .camera-workspace-stage-both .camera-workspace-feed { min-height: 0; }
   .camera-workspace.is-focused .camera-workspace-focus-caption { max-width: calc(100% - 150px); left: 16px; transform: none; }
   .camera-workspace.is-focused:has(.camera-workspace-help-drawer .camera-review-content:not(.is-collapsed)) .camera-workspace-focus-caption { max-width: 760px; }

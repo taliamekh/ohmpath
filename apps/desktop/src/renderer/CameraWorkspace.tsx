@@ -2,11 +2,15 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import "./camera-workspace.css";
 import VisionOverlay from "./VisionOverlay";
 import PhoneLiveCamera from "./PhoneLiveCamera";
+import CameraFraming, { suggestMediaRegion } from "./CameraFraming";
+import type { FrameRegion } from "./circuit-framing";
+import { framedImageBox, pointInFrame } from "./camera-framing-geometry";
 
 export type CameraCapture = {
   data_url: string;
   source: "overview" | "pi";
   captured_at: number;
+  focus_region?: FrameRegion;
 };
 
 type Props = {
@@ -102,6 +106,9 @@ export default function CameraWorkspace({ paused, onSnapshot, onActivity, guide,
   const [focused, setFocused] = useState(false);
   const [localSubtitlesEnabled, setLocalSubtitlesEnabled] = useState(true);
   const [trackingEnabled, setTrackingEnabled] = useState(false);
+  const [circuitFocus, setCircuitFocus] = useState<{ source: "overview" | "pi"; region: FrameRegion; width: number; height: number; manual?: boolean } | null>(null);
+  const [focusCloseUp, setFocusCloseUp] = useState(true);
+  const [pickCloseUp, setPickCloseUp] = useState(false);
   const piImageRef = useRef<HTMLImageElement | null>(null);
   const workspaceRef = useRef<HTMLElement | null>(null);
   const focusButtonRef = useRef<HTMLButtonElement | null>(null);
@@ -246,6 +253,7 @@ export default function CameraWorkspace({ paused, onSnapshot, onActivity, guide,
   }
 
   const stopOverview = useCallback(() => {
+    setCircuitFocus(previous => previous?.source === "overview" ? null : previous);
     overviewGeneration.current += 1;
     const stream = streamRef.current;
     streamRef.current = null;
@@ -262,11 +270,13 @@ export default function CameraWorkspace({ paused, onSnapshot, onActivity, guide,
   }, []);
 
   function stopAllOverview() {
+    setCircuitFocus(null);
     setPhoneStopSignal(value => value + 1);
     stopOverview();
   }
 
   function preparePhone() {
+    setCircuitFocus(null);
     stopOverview();
     setOverviewError("");
     overviewKindRef.current = "phone";
@@ -301,6 +311,7 @@ export default function CameraWorkspace({ paused, onSnapshot, onActivity, guide,
   }
 
   const clearPi = useCallback(() => {
+    setCircuitFocus(previous => previous?.source === "pi" ? null : previous);
     piGeneration.current += 1;
     if (piPollTimer.current !== null) window.clearTimeout(piPollTimer.current);
     piPollTimer.current = null;
@@ -509,15 +520,22 @@ export default function CameraWorkspace({ paused, onSnapshot, onActivity, guide,
           || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA || Date.now() - lastOverviewFrameAt.current > FRAME_MAX_AGE_MS) {
           throw new Error("Wait for a fresh overview camera frame before asking about it.");
         }
-        capture = { data_url: snapshotDataUrl(video), source: "overview", captured_at: Date.now() };
+        const manual = Boolean(circuitFocus?.manual && circuitFocus.source === "overview" && circuitFocus.width === video.videoWidth && circuitFocus.height === video.videoHeight);
+        const region = manual && circuitFocus ? circuitFocus.region : suggestMediaRegion(video);
+        setCircuitFocus(region ? { source: "overview", region, width: video.videoWidth, height: video.videoHeight, manual } : null);
+        capture = { data_url: snapshotDataUrl(video), source: "overview", captured_at: Date.now(), ...(region && focusCloseUp ? { focus_region: region } : {}) };
       } else {
         const frame = piFrame;
         if (!piConnected || !frame || Date.now() - frame.receivedAt > FRAME_MAX_AGE_MS) throw new Error("Wait for a fresh Pi camera frame before asking about it.");
         const image = await decodeJpeg(frame.url);
         if (pausedRef.current || !piActiveRef.current || Date.now() - frame.receivedAt > FRAME_MAX_AGE_MS) throw new Error("That Pi frame is no longer current. Try again.");
-        capture = { data_url: snapshotDataUrl(image), source: "pi", captured_at: frame.receivedAt };
+        const manual = Boolean(circuitFocus?.manual && circuitFocus.source === "pi" && circuitFocus.width === image.naturalWidth && circuitFocus.height === image.naturalHeight);
+        const region = manual && circuitFocus ? circuitFocus.region : suggestMediaRegion(image);
+        setCircuitFocus(region ? { source: "pi", region, width: image.naturalWidth, height: image.naturalHeight, manual } : null);
+        capture = { data_url: snapshotDataUrl(image), source: "pi", captured_at: frame.receivedAt, ...(region && focusCloseUp ? { focus_region: region } : {}) };
       }
       if (pausedRef.current || !mountedRef.current) return;
+      setPickCloseUp(false);
       await onSnapshot(capture);
       if (mountedRef.current) onActivity?.(`Selected ${capture.source === "pi" ? "Pi" : "overview"} snapshot sent for this question.`);
     } catch (error) {
@@ -531,6 +549,41 @@ export default function CameraWorkspace({ paused, onSnapshot, onActivity, guide,
   const currentSource = snapshotSource === "overview" ? overviewEnabled : Boolean(freshPiFrame);
   const selectedCameraName = overviewKind === "phone" ? "Phone camera" : devices.find((device) => device.deviceId === selectedDevice)?.label;
   const overviewResolution = overviewEnabled && videoRef.current?.videoWidth ? `${videoRef.current.videoWidth} × ${videoRef.current.videoHeight}` : "";
+  const overviewRegion = focusCloseUp && overviewEnabled && circuitFocus?.source === "overview"
+    && circuitFocus.width === videoRef.current?.videoWidth && circuitFocus.height === videoRef.current?.videoHeight ? circuitFocus.region : undefined;
+  const piRegion = focusCloseUp && freshPiFrame && circuitFocus?.source === "pi"
+    && circuitFocus.width === piImageRef.current?.naturalWidth && circuitFocus.height === piImageRef.current?.naturalHeight ? circuitFocus.region : undefined;
+
+  function chooseCloseUp(source: "overview" | "pi", x: number, y: number, container: HTMLElement) {
+    const media = source === "overview" ? videoRef.current : piImageRef.current;
+    if (!media) return;
+    const width = media instanceof HTMLVideoElement ? media.videoWidth : media.naturalWidth;
+    const height = media instanceof HTMLVideoElement ? media.videoHeight : media.naturalHeight;
+    if (!width || !height) return;
+    const bounds = container.getBoundingClientRect();
+    const region = source === "overview" ? overviewRegion : piRegion;
+    const point = pointInFrame(x, y, framedImageBox(bounds.width, bounds.height, width, height, region), region);
+    if (!point) return;
+    const side = Math.min(width, height) * .75;
+    const w = side / width, h = side / height;
+    setCircuitFocus({ source, width, height, manual: true, region: {
+      x: Math.max(0, Math.min(1 - w, point.x - w / 2)), y: Math.max(0, Math.min(1 - h, point.y - h / 2)), width: w, height: h,
+    } });
+    setFocusCloseUp(true); setPickCloseUp(false);
+  }
+
+  function closeUpPicker(source: "overview" | "pi") {
+    return pickCloseUp && snapshotSource === source ? <button type="button" className="camera-closeup-picker" aria-label="Choose the center of the circuit close-up"
+      onClick={event => {
+        const box = event.currentTarget.getBoundingClientRect();
+        chooseCloseUp(source, event.clientX - box.left, event.clientY - box.top, event.currentTarget);
+      }} onKeyDown={event => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          chooseCloseUp(source, event.currentTarget.clientWidth / 2, event.currentTarget.clientHeight / 2, event.currentTarget);
+        }
+      }}><span>Click the circuit to center the close-up</span></button> : null;
+  }
 
   return <section ref={workspaceRef} className={`camera-workspace${focused ? " is-focused" : ""}${fallbackFocusRef.current ? " is-fallback-focus" : ""}`} aria-label="Camera workspace">
     <header className="camera-workspace-head">
@@ -547,16 +600,20 @@ export default function CameraWorkspace({ paused, onSnapshot, onActivity, guide,
 
     <div className={`camera-workspace-stage camera-workspace-stage-${layout}`}>
       <div className="camera-workspace-feed camera-workspace-overview">
-        <video ref={videoRef} autoPlay muted playsInline className={overviewEnabled ? "is-visible" : ""} aria-label="Local overview camera preview" />
-        <VisionOverlay source="overview" enabled={trackingEnabled && snapshotSource === "overview" && overviewEnabled && !paused}
+        <CameraFraming region={overviewRegion} width={videoRef.current?.videoWidth ?? 0} height={videoRef.current?.videoHeight ?? 0}>
+          <video ref={videoRef} autoPlay muted playsInline className={overviewEnabled ? "is-visible" : ""} aria-label="Local overview camera preview" />
+        </CameraFraming>
+        {overviewEnabled && closeUpPicker("overview")}
+        <VisionOverlay source="overview" region={overviewRegion} enabled={trackingEnabled && !pickCloseUp && snapshotSource === "overview" && overviewEnabled && !paused}
           getFrame={() => videoRef.current && videoRef.current.readyState >= 2 && Date.now() - lastOverviewFrameAt.current <= 1000
             ? { media: videoRef.current, stamp: videoRef.current.currentTime } : null} />
         {!overviewEnabled && <div className="camera-workspace-empty"><span className="camera-workspace-empty-icon">◉</span><strong>Overview camera is off</strong><span>Connect your phone below, or choose a Windows camera.</span></div>}
         <div className="camera-workspace-feed-label"><span className={overviewEnabled ? "camera-workspace-dot is-live" : "camera-workspace-dot"} /> {overviewKind === "phone" ? "Phone" : "Overview"} <small>{overviewEnabled ? `Direct preview · ${overviewResolution}` : "Not connected"}</small></div>
       </div>
       <div className="camera-workspace-feed camera-workspace-pi">
-        {freshPiFrame ? <img ref={piImageRef} src={freshPiFrame.url} alt="Latest Raspberry Pi camera frame" /> : <div className="camera-workspace-empty"><span className="camera-workspace-empty-icon">◎</span><strong>{piConnected ? "Waiting for a current frame" : "Pi camera is off"}</strong><span>{piConnected ? "The preview clears when the frame is stale." : "Connect through an existing local tunnel."}</span></div>}
-        <VisionOverlay source="pi" enabled={trackingEnabled && snapshotSource === "pi" && Boolean(freshPiFrame) && !paused}
+        {freshPiFrame ? <CameraFraming region={piRegion} width={piImageRef.current?.naturalWidth ?? 0} height={piImageRef.current?.naturalHeight ?? 0}><img ref={piImageRef} src={freshPiFrame.url} alt="Latest Raspberry Pi camera frame" /></CameraFraming> : <div className="camera-workspace-empty"><span className="camera-workspace-empty-icon">◎</span><strong>{piConnected ? "Waiting for a current frame" : "Pi camera is off"}</strong><span>{piConnected ? "The preview clears when the frame is stale." : "Connect through an existing local tunnel."}</span></div>}
+        {freshPiFrame && closeUpPicker("pi")}
+        <VisionOverlay source="pi" region={piRegion} enabled={trackingEnabled && !pickCloseUp && snapshotSource === "pi" && Boolean(freshPiFrame) && !paused}
           getFrame={() => freshPiFrame && piImageRef.current?.complete && piImageRef.current.naturalWidth > 0 && Date.now() - freshPiFrame.receivedAt <= 1000
             ? { media: piImageRef.current, stamp: freshPiFrame.receivedAt } : null} />
         <div className="camera-workspace-feed-label"><span className={freshPiFrame ? "camera-workspace-dot is-live" : "camera-workspace-dot"} /> Pi close-up <small>{freshPiFrame ? "Current frame" : piConnected ? "No current frame" : "Not connected"}</small></div>
@@ -578,6 +635,11 @@ export default function CameraWorkspace({ paused, onSnapshot, onActivity, guide,
       <p>Only your selected snapshot is shared for this question. Preview is not continuous analysis.</p>
     </div>
     {snapshotError && <p className="camera-workspace-error" role="status">{snapshotError}</p>}
+    <div className="camera-closeup-controls">
+      {circuitFocus && <button type="button" className="camera-workspace-focus-button" onClick={() => { setFocusCloseUp(value => !value); setPickCloseUp(false); }}>{focusCloseUp ? "Whole camera view" : "Circuit close-up"}</button>}
+      <button type="button" className="camera-workspace-focus-button" disabled={!currentSource || paused} aria-pressed={pickCloseUp} onClick={() => setPickCloseUp(value => !value)}>{pickCloseUp ? "Cancel close-up selection" : "Choose close-up"}</button>
+      <small>{circuitFocus && focusCloseUp ? "Suggested close-up · the whole snapshot is kept for context." : "Ask automatically enlarges a clear circuit area. You can also choose its center."}</small>
+    </div>
     <div className="camera-vision-controls">
       <button type="button" className="button secondary small" disabled={paused || !currentSource} aria-pressed={trackingEnabled}
         onClick={() => setTrackingEnabled(value => !value)}>{trackingEnabled ? "Stop visual tracking" : "Track a point locally"}</button>

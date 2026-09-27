@@ -1,8 +1,9 @@
 // Offline Electron replay: real renderer and production preload, test-only IPC.
 // No bench service, model, microphone, camera, network, or physical driver starts.
-const { app, BrowserWindow, ipcMain, session } = require('electron');
+const { app, BrowserWindow, ipcMain, nativeImage, session } = require('electron');
 const { resolve } = require('node:path');
 const { deflateSync } = require('node:zlib');
+const { randomUUID } = require('node:crypto');
 
 const root = resolve(__dirname, '../..');
 const imageIds = [
@@ -127,8 +128,13 @@ function handle(action, payload = {}) {
         || Math.abs(Date.now() - payload.captured_at) > 10000
         || typeof payload.data_url !== 'string' || payload.data_url.length > 2700000
         || !/^data:image\/jpeg;base64,[A-Za-z0-9+/]+={0,2}$/.test(payload.data_url)) throw new Error('Invalid replay camera snapshot.');
+    const { width, height } = nativeImage.createFromDataURL(payload.data_url).getSize();
+    if (!width || !height) throw new Error('Invalid replay camera dimensions.');
+    // Preserve the first replay ID used by lifecycle assertions; later captures
+    // must be distinct so the visual workspace can select the newest snapshot.
+    const image_id = audit.captures.length ? randomUUID() : imageIds[2];
     audit.captures.push({ source: payload.source, captured_at: payload.captured_at, length: payload.data_url.length });
-    const result = { image: { image_id: imageIds[2], name: 'Overview snapshot', data_url: payload.data_url, width: 640, height: 360 } };
+    const result = { image: { image_id, name: 'Overview snapshot', data_url: payload.data_url, width, height } };
     if (delayNextCapture) {
       delayNextCapture = false;
       return new Promise(resolve => { resolveLateCapture = () => { resolveLateCapture = undefined; resolve(result); }; });
