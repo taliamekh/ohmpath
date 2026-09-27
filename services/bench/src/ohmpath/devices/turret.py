@@ -198,21 +198,7 @@ class Turret:
                 # This marker belongs to the displayed exposure. A remembered
                 # reference or camera centre must never masquerade as its beam.
                 try:
-                    try:
-                        spotted = self._detect_spot(frame)
-                    except ValueError:
-                        previous = self.preview_spot
-                        identity = self.preview_spot_identity
-                        if (previous is None or identity is None
-                                or identity[0] != frame['generation'] or identity[1] != self.orientation
-                                or not 0 < frame['sequence'] - identity[2] <= 3):
-                            raise
-                        # Preview only: follow a recent candidate through a
-                        # modest image shift. The motion controller retains its
-                        # stricter observed-beam check and never uses this marker.
-                        spotted = detect_red_spot(
-                            frame['image'], (previous['x'], previous['y']),
-                            seed_radius_px=max(10., .025 * max(height, width)))
+                    spotted = self._detect_spot(frame)
                     self.preview_spot = spotted
                     self.preview_spot_identity = (frame['generation'], self.orientation, frame['sequence'])
                     self.preview_spot_message = 'A red beam candidate is visible in this image.'

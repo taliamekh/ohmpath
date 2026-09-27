@@ -639,7 +639,9 @@ export default function CameraWorkspace({ paused, reservedForTurret = false, onS
       }
       if (pausedRef.current || !mountedRef.current) return;
       setPickCloseUp(false);
-      if (focusedRef.current) await exitFocus();
+      if (focusedRef.current) {
+        await Promise.race([exitFocus(), new Promise<void>(resolve => window.setTimeout(resolve, 800))]);
+      }
       await onSnapshot(capture, question);
       if (mountedRef.current) onActivity?.(`${capture.source === "pi" ? "Turret" : "Overview"} photo ready in Photo help.`);
     } catch (error) {
