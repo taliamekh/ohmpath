@@ -64,6 +64,10 @@ function sanitizeVoices(value) {
   });
 }
 
+function isEligibleVoice(voice) {
+  return voice?.category === 'premade' || voice?.category === 'generated' || voice?.category === 'cloned';
+}
+
 function sanitizeModels(value) {
   if (!Array.isArray(value)) throw failure('provider_metadata_invalid');
   return value.slice(0, 100).flatMap(model => isRecord(model) && typeof model.model_id === 'string'
@@ -206,9 +210,12 @@ function createElevenLabsConnection({ safeStorage, filePath, fetchImpl = global.
       speaking_request_id: activeSpeech?.request_id || null, last_error: lastError };
     if (result.kind !== 'connected') return base;
     const value = result.value;
+    const eligibleVoices = value.voices.filter(isEligibleVoice);
+    const selectedVoiceId = eligibleVoices.some(voice => voice.voice_id === value.selectedVoiceId)
+      ? value.selectedVoiceId : null;
     return { ...base, connected: true, storage_status: 'ready',
-      selected_voice_id: value.selectedVoiceId || null, subscription: value.subscription,
-      voices: value.voices, models: value.models.map(({ model_id, name }) => ({ model_id, name })),
+      selected_voice_id: selectedVoiceId, subscription: value.subscription,
+      voices: eligibleVoices, models: value.models.map(({ model_id, name }) => ({ model_id, name })),
       metadata_checked_at: value.metadataCheckedAt,
       generation_enabled: generationEnabled,
       provider_remaining_credits: value.subscription.character_count === null
@@ -335,7 +342,7 @@ function createElevenLabsConnection({ safeStorage, filePath, fetchImpl = global.
       if (epoch !== cancellationEpoch || !generationEnabled) throw failure('speech_cancelled');
       if (metadata.subscription.overage_status !== 'disabled') throw failure('spending_blocked');
       const voice = metadata.voices.find(item => item.voice_id === current.value.selectedVoiceId);
-      if (!voice || voice.category !== 'premade') throw failure('voice_not_eligible');
+      if (!isEligibleVoice(voice)) throw failure('voice_not_eligible');
       const model = metadata.models.find(item => item.model_id === SPEECH_MODEL);
       if (!model || !model.can_do_text_to_speech
           || model.maximum_text_length_per_request === null
@@ -386,7 +393,8 @@ function createElevenLabsConnection({ safeStorage, filePath, fetchImpl = global.
         throw failure('invalid_voice');
       const current = await readStore();
       if (current.kind !== 'connected') throw failure('connection_unavailable');
-      if (!current.value.voices.some(voice => voice.voice_id === payload.voiceId)) throw failure('invalid_voice');
+      if (!current.value.voices.some(voice => voice.voice_id === payload.voiceId && isEligibleVoice(voice)))
+        throw failure('invalid_voice');
       const value = { ...current.value, selectedVoiceId: payload.voiceId };
       await writeStore(value);
       return view({ kind: 'connected', value });
